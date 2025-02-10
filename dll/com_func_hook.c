@@ -647,10 +647,12 @@ static BOOL HookTaskGroupFunctions()
 		break;
 	}
 
-	if(i == task_groups_count)
+	if(i == task_groups_count || !task_group)
 		return TRUE;
 
 	plp = (LONG_PTR *)task_group[0]; // COM functions list
+	if(!plp)
+		return TRUE;
 
 	ppDoesWindowMatch = (void **)&FUNC_CTaskGroup_DoesWindowMatch(plp);
 
@@ -700,12 +702,18 @@ static BOOL HookTaskItemFunctions()
 			break;
 	}
 
-	if(i == task_groups_count)
+	if(i == task_groups_count || !plp)
 		return TRUE;
 
 	plp = (LONG_PTR *)plp[1]; // CTaskItem DPA array
+	if(!plp)
+		return TRUE;
 	plp = (LONG_PTR *)plp[0]; // First array item
+	if(!plp)
+		return TRUE;
 	plp = (LONG_PTR *)plp[0]; // COM functions list
+	if(!plp)
+		return TRUE;
 
 	ppTaskItemSetWindow = (void **)&FUNC_CWindowTaskItem_SetWindow(plp);
 	ppTaskItemGetWindow = (void **)&FUNC_CWindowTaskItem_GetWindow(plp);
