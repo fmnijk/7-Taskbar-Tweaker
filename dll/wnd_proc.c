@@ -1594,7 +1594,7 @@ static LRESULT CALLBACK NewTaskbarProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPAR
 				break;
 
 			case MSG_DLL_INSPECTOR_FROM_TRAY:
-				if(GetTickCount() > GetInspectorCloseTime() + GetDoubleClickTime())
+				if(GetTickCount64() > GetInspectorCloseTime() + GetDoubleClickTime())
 				{
 					result = ShowInspectorDlg();
 				}
@@ -2399,7 +2399,7 @@ static LRESULT CALLBACK NewTaskListProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPA
 	static int nDoubleClickOption = 0;
 	static BOOL bControllingContextMenu = FALSE;
 	static BOOL bImmediateTooltip = FALSE;
-	static DWORD dwLastWheelMinimizeTickCount, dwLastWheelRestoreTickCount;
+	static ULONGLONG dwLastWheelMinimizeTickCount, dwLastWheelRestoreTickCount;
 	LONG_PTR lpMMTaskListLongPtr;
 	int nOption;
 	DWORD dwOldUserPrefSetBits, dwOldUserPrefRemoveBits;
@@ -2932,7 +2932,7 @@ static LRESULT CALLBACK NewTaskListProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPA
 
 					// Add a limit, since if many "restore" commands fire one after another
 					// with a short delay and the window is maximized, it may become un-maximized.
-					if(GetTickCount() - (bMinimize ? dwLastWheelMinimizeTickCount : dwLastWheelRestoreTickCount) > 100)
+					if(GetTickCount64() - (bMinimize ? dwLastWheelMinimizeTickCount : dwLastWheelRestoreTickCount) > 100)
 					{
 						// Allows to steal focus
 						ZeroMemory(&input, sizeof(INPUT));
@@ -2948,7 +2948,7 @@ static LRESULT CALLBACK NewTaskListProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPA
 							else
 								MinimizeThumbTaskItem(temp_task_item);
 
-							dwLastWheelMinimizeTickCount = GetTickCount();
+							dwLastWheelMinimizeTickCount = GetTickCount64();
 						}
 						else
 						{
@@ -2960,7 +2960,7 @@ static LRESULT CALLBACK NewTaskListProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPA
 							else
 								SwitchToTaskItem(temp_task_item);
 
-							dwLastWheelRestoreTickCount = GetTickCount();
+							dwLastWheelRestoreTickCount = GetTickCount64();
 						}
 					}
 
@@ -3167,7 +3167,7 @@ static LRESULT CALLBACK NewThumbnailProc(HWND hWnd, UINT uMsg, WPARAM wParam, LP
 
 				// Add a limit, since if many "restore" commands fire one after another
 				// with a short delay and the window is maximized, it may become un-maximized.
-				if(GetTickCount() - (bMinimize ? dwLastWheelMinimizeTickCount : dwLastWheelRestoreTickCount) > 100)
+				if(GetTickCount64() - (bMinimize ? dwLastWheelMinimizeTickCount : dwLastWheelRestoreTickCount) > 100)
 				{
 					// Allows to steal focus
 					ZeroMemory(&input, sizeof(INPUT));
@@ -3183,7 +3183,7 @@ static LRESULT CALLBACK NewThumbnailProc(HWND hWnd, UINT uMsg, WPARAM wParam, LP
 						else
 							MinimizeThumbTaskItem(temp_task_item);
 
-						dwLastWheelMinimizeTickCount = GetTickCount();
+						dwLastWheelMinimizeTickCount = GetTickCount64();
 					}
 					else
 					{
@@ -3195,7 +3195,7 @@ static LRESULT CALLBACK NewThumbnailProc(HWND hWnd, UINT uMsg, WPARAM wParam, LP
 						else
 							SwitchToTaskItem(temp_task_item);
 
-						dwLastWheelRestoreTickCount = GetTickCount();
+						dwLastWheelRestoreTickCount = GetTickCount64();
 					}
 
 					// Remove active thumb

@@ -189,7 +189,7 @@ static int nThumbnailListReverseHack = -1;
 static BOOL bTaskListCapturedAndActiveWndChanged;
 static LONG_PTR lpCapturedTaskListLongPtr;
 static LONG_PTR *button_group_active_after_capture;
-static DWORD dwDragTickCount;
+static ULONGLONG dwDragTickCount;
 static LONG_PTR *task_group_virtual_desktop_released;
 static LONG_PTR *task_item_virtual_desktop_released;
 static int nDoesWindowMatchCalls;
@@ -900,7 +900,7 @@ static HRESULT __stdcall OleDragEnterHook(IDropTarget *This, IDataObject *pDataO
 
 		hr = ((OLE_DRAG_ENTER_PROC *)pOleDragEnter)(This, pDataObj, grfKeyState, pt, pdwEffect);
 
-		dwDragTickCount = GetTickCount();
+		dwDragTickCount = GetTickCount64();
 	}
 	else
 		hr = ((OLE_DRAG_ENTER_PROC *)pOleDragEnter)(This, pDataObj, grfKeyState, pt, pdwEffect);
@@ -927,9 +927,9 @@ static HRESULT __stdcall OleDragOverHook(IDropTarget *This, DWORD grfKeyState, P
 
 		if(*EV_MM_TASKLIST_TRACKED_BUTTON_GROUP(lpMMTaskListLongPtr))
 		{
-			dwDragTickCount = GetTickCount();
+			dwDragTickCount = GetTickCount64();
 		}
-		else if(nOptionsEx[OPT_EX_SHOW_DESKTOP_ON_HOVER] && GetTickCount() - dwDragTickCount >= 500)
+		else if(nOptionsEx[OPT_EX_SHOW_DESKTOP_ON_HOVER] && GetTickCount64() - dwDragTickCount >= 500)
 		{
 			// CShowDesktopButton::_RaiseDesktop
 			PostMessage(hTaskbarWnd, 0x579, 1, 1);
@@ -3184,7 +3184,7 @@ static void OnButtonGroupHotTrackOut(LONG_PTR *button_group)
 		button_group_tracked = TaskbarGetTrackedButtonGroup(lpMMTaskListLongPtr);
 		if(!button_group_tracked)
 		{
-			wsprintf(szAppId, L"random_group_%u", GetTickCount());
+			wsprintf(szAppId, L"random_group_%llu", GetTickCount64());
 			if(WndSetAppId(hDragWithinGroupsWnd, szAppId))
 			{
 				lpRightDragDetachTaskListLongPtr = lpMMTaskListLongPtr;

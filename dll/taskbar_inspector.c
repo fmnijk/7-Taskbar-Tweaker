@@ -54,7 +54,7 @@ extern LONG_PTR lpTaskbarLongPtr, lpTaskSwLongPtr, lpTaskListLongPtr;
 
 static volatile HANDLE hInspThread;
 static volatile HWND hInspWnd;
-static volatile DWORD dwInspectorCloseTime;
+static volatile ULONGLONG dwInspectorCloseTime;
 static HWND hInspListWnd;
 static LONG_PTR lpInspMMTaskListLongPtr;
 static int nRefreshing;
@@ -169,7 +169,7 @@ static DWORD WINAPI InspectorThread(void *pParameter)
 
 	DialogBox(hDllInst, MAKEINTRESOURCE(IDD_INSPECTOR), NULL, (DLGPROC)DlgInspectorProc);
 
-	dwInspectorCloseTime = GetTickCount();
+	dwInspectorCloseTime = GetTickCount64();
 
 	hThread = InterlockedExchangePointer(&hInspThread, NULL);
 	if(hThread)
@@ -1333,7 +1333,7 @@ static BOOL WindowsPopupMenu(HWND hWnd, HWND hListWnd, UINT uSelectedWndCount, i
 	}
 
 	AppendMenu(hSubMenu, MF_SEPARATOR, 0, NULL);
-	wsprintf(szAppId, L"random_group_%u", GetTickCount());
+	wsprintf(szAppId, L"random_group_%llu", GetTickCount64());
 	AppendMenu(hSubMenu, MF_STRING, WNDMENU_NEWAPPID + i, szAppId);
 	AppendMenu(hSubMenu, MF_STRING, WNDMENU_DELAPPID, LoadStrFromRsrc(IDS_RCMENU_ID_RESTORE));
 

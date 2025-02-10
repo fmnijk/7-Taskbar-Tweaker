@@ -78,7 +78,7 @@ UINT GetUniqueTempDir(const TCHAR *pPrefixString, TCHAR *pDir)
 			*p++ = *pPrefixString++;
 
 	// Get a "random" unique number and try to create the directory
-	wUnique = (WORD)GetTickCount();
+	wUnique = (WORD)GetTickCount64();
 	wUniqueInit = wUnique;
 
 	do
@@ -154,7 +154,7 @@ BOOL RemoveDirectoryOnReboot(const TCHAR *pDir)
 	lstrcpy(szValueName, L"del_vbs_");
 	p = szValueName + (sizeof("del_vbs_") - 1);
 
-	wUnique = (WORD)GetTickCount();
+	wUnique = (WORD)GetTickCount64();
 	wUniqueInit = wUnique;
 
 	do
