@@ -152,6 +152,19 @@ static void **ppSecondaryIsHorizontal;
 static void *pSecondaryIsHorizontal;
 POINTER_REDIRECTION_VAR(static POINTER_REDIRECTION prSecondaryIsHorizontal);
 
+static LPWSTR PathToAppData(LPWSTR buffer, size_t bufferSize, LPCWSTR relativePath)
+{
+	// 獲取 AppData Roaming 路徑
+	if(SUCCEEDED(SHGetFolderPathW(NULL, CSIDL_APPDATA, NULL, 0, buffer))) {
+		// 加上基礎路徑
+		PathAppendW(buffer, L"7+ Taskbar Tweaker");
+		// 加上相對路徑
+		PathAppendW(buffer, relativePath);
+		return buffer;
+	}
+	return NULL;
+}
+
 // hook vars
 static BOOL bTaskGroupFunctionsHooked;
 static BOOL bTaskItemFunctionsHooked;
@@ -342,7 +355,7 @@ static BOOL HookFunctions()
 		return FALSE;
 
 	// CTaskBand::GetUserPreferences, IsHorizontal
-	plp = *(LONG_PTR **)(lpTaskSwLongPtr + DO4_3264(0x20, 0x40, 0x24, 0x48, ,, 0x28, 0x50));
+	plp = *(LONG_PTR **)(lpTaskSwLongPtr + DO4_3264(0x20, 0x40, 0x24, 0x48, , , 0x28, 0x50));
 
 	ppGetUserPreferences = (void **)&FUNC_CTaskBand_GetUserPreferences(plp);
 	if(!CreateEnableHook(ppGetUserPreferences, GetUserPreferencesHook, &pGetUserPreferences, &prGetUserPreferences))
@@ -353,7 +366,7 @@ static BOOL HookFunctions()
 		return FALSE;
 
 	// CTaskBand::GetIconId, SwitchTo, GetIconSize
-	plp = *(LONG_PTR **)(lpTaskSwLongPtr + DO4_3264(0x20, 0x40, ,, ,, 0x24, 0x48));
+	plp = *(LONG_PTR **)(lpTaskSwLongPtr + DO4_3264(0x20, 0x40, , , , , 0x24, 0x48));
 
 	if(nWinVersion >= WIN_VERSION_10_T1)
 	{
@@ -406,7 +419,7 @@ static BOOL HookFunctions()
 			return FALSE;
 
 		// CTaskBand::Exec
-		plp = *(LONG_PTR **)(lpTaskSwLongPtr + DO5_3264(0, 0, ,, ,, ,, 0x20, 0x40));
+		plp = *(LONG_PTR **)(lpTaskSwLongPtr + DO5_3264(0, 0, , , , , , , 0x20, 0x40));
 
 		ppTaskBandExec = (void **)&FUNC_CTaskBand_Exec(plp);
 		if(!CreateEnableHook(ppTaskBandExec, TaskBandExecHook, &pTaskBandExec, &prTaskBandExec))
@@ -499,7 +512,7 @@ static BOOL HookFunctions()
 	if(nWinVersion <= WIN_VERSION_10_T2)
 	{
 		// CTaskListWnd::OnDestinationMenuDismissed
-		plp = *(LONG_PTR **)(lpTaskListLongPtr + DO5_3264(0x30, 0x60, ,, ,, ,, 0x2C, 0x58));
+		plp = *(LONG_PTR **)(lpTaskListLongPtr + DO5_3264(0x30, 0x60, , , , , , , 0x2C, 0x58));
 
 		ppOnDestinationMenuDismissed = (void **)&FUNC_CTaskListWnd_OnDestinationMenuDismissed(plp);
 		if(!CreateEnableHook(ppOnDestinationMenuDismissed, OnDestinationMenuDismissedHook, &pOnDestinationMenuDismissed, &prOnDestinationMenuDismissed))
@@ -521,7 +534,7 @@ static BOOL HookFunctions()
 	if(nWinVersion <= WIN_VERSION_811)
 	{
 		// CTaskListThumbnailWnd::GetThumbRectFromIndex, CTaskListThumbnailWnd::ThumbIndexFromPoint
-		plp = *(LONG_PTR **)(lpThumbnailLongPtr + DO5_3264(0x10, 0x20, ,, ,, ,, 0x08, 0x10));
+		plp = *(LONG_PTR **)(lpThumbnailLongPtr + DO5_3264(0x10, 0x20, , , , , , , 0x08, 0x10));
 
 		ppGetThumbRectFromIndex = (void **)&FUNC_CTaskListThumbnailWnd_GetThumbRectFromIndex(plp);
 		if(!CreateEnableHook(ppGetThumbRectFromIndex, GetThumbRectFromIndexHook, &pGetThumbRectFromIndex, &prGetThumbRectFromIndex))
@@ -533,7 +546,7 @@ static BOOL HookFunctions()
 	}
 
 	// CTaskListThumbnailWnd::DestroyThumbnail
-	plp = *(LONG_PTR **)(lpThumbnailLongPtr + DO5_3264(0x18, 0x30, ,, ,, ,, 0x10, 0x20));
+	plp = *(LONG_PTR **)(lpThumbnailLongPtr + DO5_3264(0x18, 0x30, , , , , , , 0x10, 0x20));
 
 	ppDestroyThumbnail = (void **)&FUNC_CTaskListThumbnailWnd_DestroyThumbnail(plp);
 	if(!CreateEnableHook(ppDestroyThumbnail, DestroyThumbnailHook, &pDestroyThumbnail, &prDestroyThumbnail))
@@ -721,7 +734,7 @@ static BOOL HookTaskItemFunctions()
 	if(
 		!CreateEnableHook(ppTaskItemSetWindow, TaskItemSetWindowHook, &pTaskItemSetWindow, &prTaskItemSetWindow) ||
 		!CreateEnableHook(ppTaskItemGetWindow, TaskItemGetWindowHook, &pTaskItemGetWindow, &prTaskItemGetWindow)
-	)
+		)
 	{
 		UnhookTaskItemFunctions();
 		return FALSE;
@@ -784,7 +797,7 @@ static BOOL HookTaskBtnGroupFunctions()
 		!CreateEnableHook(ppRender, pRenderHook, &pRender, &prRender) ||
 		!CreateEnableHook(ppButtonGroupCanGlom, ButtonGroupCanGlomHook, &pButtonGroupCanGlom, &prButtonGroupCanGlom) ||
 		!CreateEnableHook(ppShouldShowToolTip, ShouldShowToolTipHook, &pShouldShowToolTip, &prShouldShowToolTip)
-	)
+		)
 	{
 		UnhookTaskBtnGroupFunctions();
 		return FALSE;
@@ -798,7 +811,7 @@ static BOOL HookTaskBtnGroupFunctions()
 		if(
 			!CreateEnableHook(ppButtonGroupHotTracking, ButtonGroupHotTrackingHook, &pButtonGroupHotTracking, &prButtonGroupHotTracking) ||
 			!CreateEnableHook(ppButtonGroupHotTrackOut, ButtonGroupHotTrackOutHook, &pButtonGroupHotTrackOut, &prButtonGroupHotTrackOut)
-		)
+			)
 		{
 			UnhookTaskBtnGroupFunctions();
 			return FALSE;
@@ -812,7 +825,7 @@ static BOOL HookTaskBtnGroupFunctions()
 		if(
 			!CreateEnableHook(ppButtonGroupStartItemAnimation, ButtonGroupStartItemAnimationHook, &pButtonGroupStartItemAnimation, &prButtonGroupStartItemAnimation) ||
 			!CreateEnableHook(ppButtonGroupHasItemAnimation, ButtonGroupHasItemAnimationHook, &pButtonGroupHasItemAnimation, &prButtonGroupHasItemAnimation)
-		)
+			)
 		{
 			UnhookTaskBtnGroupFunctions();
 			return FALSE;
@@ -870,7 +883,7 @@ static BOOL HookSecondaryTaskbarFunctions(LONG_PTR lpSecondaryTaskListLongPtr)
 	if(
 		!bSuccess ||
 		!CreateEnableHook(ppSecondaryIsHorizontal, SecondaryIsHorizontalHook, &pSecondaryIsHorizontal, &prSecondaryIsHorizontal)
-	)
+		)
 	{
 		UnhookSecondaryTaskbarFunctions();
 		return FALSE;
@@ -1069,7 +1082,7 @@ static LONG_PTR __stdcall SwitchToHook(LONG_PTR this_ptr, LONG_PTR var2, LONG_PT
 	}
 	else
 		lpRet = ((LONG_PTR(__stdcall *)(LONG_PTR, LONG_PTR, LONG_PTR *, BOOL))pSwitchTo)
-			(this_ptr, var2, task_item, bSwitchTo);
+		(this_ptr, var2, task_item, bSwitchTo);
 
 	nHookProcCallCounter--;
 
@@ -1095,7 +1108,7 @@ static LONG_PTR __stdcall SwitchToHook2(LONG_PTR this_ptr, LONG_PTR *task_item, 
 	}
 	else
 		lpRet = ((LONG_PTR(__stdcall *)(LONG_PTR, LONG_PTR *, BOOL))pSwitchTo)
-			(this_ptr, task_item, bSwitchTo);
+		(this_ptr, task_item, bSwitchTo);
 
 	nHookProcCallCounter--;
 
@@ -1912,7 +1925,7 @@ static LONG_PTR __stdcall OnDestinationMenuDismissedHook(LONG_PTR this_ptr)
 
 	if(nOptions[OPT_COMBINING_DEACTIVE] == 1)
 	{
-		lpMMTaskListLongPtr = this_ptr - DO5_3264(0x30, 0x60, ,, ,, ,, 0x2C, 0x58);
+		lpMMTaskListLongPtr = this_ptr - DO5_3264(0x30, 0x60, , , , , , , 0x2C, 0x58);
 
 		prev_button_group_active = TaskbarGetActiveButtonGroup(lpMMTaskListLongPtr);
 
@@ -1962,7 +1975,7 @@ static LONG_PTR __stdcall DisplayUIHook(LONG_PTR this_ptr, LONG_PTR *button_grou
 		if(
 			button_group_type == 1 &&
 			(int)((LONG_PTR *)button_group[DO2(5, 7)])[0] > 1 // buttons_count
-		)
+			)
 		{
 			if(nOptions[OPT_COMBINING_DE_LABELS] == 1)
 			{
@@ -1980,7 +1993,7 @@ static LONG_PTR __stdcall DisplayUIHook(LONG_PTR this_ptr, LONG_PTR *button_grou
 					bDecombineTemporaryShowLabels = (
 						(nOptions[OPT_COMBINING_DEACTIVE] == 1 && button_group == button_group_active) ||
 						(nOptions[OPT_COMBINING_DEONHOVER] == 1 && (button_group == button_group_tracked || button_group == button_group_untracked_decombined))
-					);
+						);
 
 					if(bDecombineTemporaryShowLabels)
 					{
@@ -2032,7 +2045,7 @@ static LONG_PTR __stdcall GetThumbRectFromIndexHook(LONG_PTR this_ptr, int thumb
 
 	nHookProcCallCounter++;
 
-	lpMMThumbnailLongPtr = this_ptr - DO5_3264(0x10, 0x20, ,, ,, ,, 0x08, 0x10);
+	lpMMThumbnailLongPtr = this_ptr - DO5_3264(0x10, 0x20, , , , , , , 0x08, 0x10);
 
 	if(nOptionsEx[OPT_EX_LIST_REVERSE_ORDER] && thumb_index >= 0)
 	{
@@ -2124,7 +2137,7 @@ static int __stdcall ThumbIndexFromPointHook(LONG_PTR this_ptr, POINT *ppt)
 
 	nHookProcCallCounter++;
 
-	lpMMThumbnailLongPtr = this_ptr - DO5_3264(0x10, 0x20, ,, ,, ,, 0x08, 0x10);
+	lpMMThumbnailLongPtr = this_ptr - DO5_3264(0x10, 0x20, , , , , , , 0x08, 0x10);
 
 	if(nOptionsEx[OPT_EX_LIST_REVERSE_ORDER])
 	{
@@ -2196,7 +2209,7 @@ static LONG_PTR __stdcall DestroyThumbnailHook(LONG_PTR this_ptr, LONG_PTR var2)
 	// * CTaskListWnd::v_WndProc
 	if(nOptions[OPT_GROUPING_RIGHTDRAG] == 1)
 	{
-		lpMMThumbnailLongPtr = this_ptr - DO5_3264(0x18, 0x30, ,, ,, ,, 0x10, 0x20);
+		lpMMThumbnailLongPtr = this_ptr - DO5_3264(0x18, 0x30, , , , , , , 0x10, 0x20);
 
 		LONG_PTR *plp = (LONG_PTR *)*EV_MM_THUMBNAIL_THUMBNAILS_HDPA(lpMMThumbnailLongPtr);
 		if(plp)
@@ -2225,18 +2238,18 @@ static LONG_PTR __stdcall DestroyThumbnailHook(LONG_PTR this_ptr, LONG_PTR var2)
 static HRESULT __stdcall DoesWindowMatchHook(LONG_PTR *task_group, HWND hCompareWnd, ITEMIDLIST *pCompareItemIdList,
 	WCHAR *pCompareAppId, int *pnMatch, LONG_PTR **p_task_item)
 {
-/*
+	/*
 
-return:
-S_OK if there's a match, E_FAIL otherwise
+	return:
+	S_OK if there's a match, E_FAIL otherwise
 
-*pnMatch:
-4: hWnd already exists (p_task_item)
-3: ITEMIDLIST matches
-2: AppId matches, ITEMIDLIST doesn't match
-1: AppId matches, ITEMIDLIST is missing
+	*pnMatch:
+	4: hWnd already exists (p_task_item)
+	3: ITEMIDLIST matches
+	2: AppId matches, ITEMIDLIST doesn't match
+	1: AppId matches, ITEMIDLIST is missing
 
-*/
+	*/
 
 	BOOL bDontGroup;
 	BOOL bPinned;
@@ -2774,7 +2787,7 @@ static BOOL __stdcall ButtonGroupCanGlomHook(LONG_PTR *button_group)
 	if(
 		button_group_type == 1 &&
 		(int)((LONG_PTR *)button_group[DO2(5, 7)])[0] > 1 // buttons_count
-	)
+		)
 	{
 		bRet = CheckCombineButtonGroup(button_group);
 		if(bRet)
@@ -2791,7 +2804,7 @@ static BOOL __stdcall ButtonGroupCanGlomHook(LONG_PTR *button_group)
 			bDecombineTemporary = (
 				(nOptions[OPT_COMBINING_DEACTIVE] == 1 && button_group == button_group_active) ||
 				(nOptions[OPT_COMBINING_DEONHOVER] == 1 && (button_group == button_group_tracked || button_group == button_group_untracked_decombined))
-			);
+				);
 
 			// For WIN_VERSION_10_R1, keep the group decombined while we move it on the taskbar.
 			if(!bDecombineTemporary &&
@@ -2839,7 +2852,7 @@ static void ButtonGroupSetPrefOnUpdate(LONG_PTR *button_group, BOOL bDecombineWi
 	if(
 		button_group_type == 1 &&
 		(int)((LONG_PTR *)button_group[DO2(5, 7)])[0] > 1 // buttons_count
-	)
+		)
 	{
 		// multimonitor environment
 		if(nWinVersion >= WIN_VERSION_8)
@@ -2861,7 +2874,7 @@ static void ButtonGroupSetPrefOnUpdate(LONG_PTR *button_group, BOOL bDecombineWi
 				bDecombineTemporaryShowLabels = (
 					(nOptions[OPT_COMBINING_DEACTIVE] == 1 && button_group == button_group_active) ||
 					(nOptions[OPT_COMBINING_DEONHOVER] == 1 && (button_group == button_group_tracked || button_group == button_group_untracked_decombined))
-				);
+					);
 			}
 		}
 
@@ -4119,20 +4132,20 @@ static DWORD ManipulateUserPreferences(DWORD dwPreferences, void **ppAddressOfRe
 		// A8 01 | TEST AL, 01
 		if(pbCode &&
 			pbCode[0] == 0xA8 && pbCode[1] == 0x01)
-		{
-			pbCode += 2;
-
-			// 0F84 XXXXXXXX | JZ XXXXXXXX
-			// -OR-
-			// 74 XX | JZ SHORT XXXXXXXX
-			if((pbCode[0] == 0x0F && pbCode[1] == 0x84) ||
-				pbCode[0] == 0x74)
 			{
-				selective_combining_hack = 3;
+				pbCode += 2;
+
+				// 0F84 XXXXXXXX | JZ XXXXXXXX
+				// -OR-
+				// 74 XX | JZ SHORT XXXXXXXX
+				if((pbCode[0] == 0x0F && pbCode[1] == 0x84) ||
+					pbCode[0] == 0x74)
+				{
+					selective_combining_hack = 3;
+				}
 			}
-		}
 #endif // WIN64
-	}
+		}
 
 	// A hack for selective combining.
 	// How to check whether the hack works:
@@ -4159,7 +4172,7 @@ static DWORD ManipulateUserPreferences(DWORD dwPreferences, void **ppAddressOfRe
 	}
 
 	return dwNewPreferences;
-}
+	}
 
 static BOOL CheckCombineButtonGroup(LONG_PTR *button_group)
 {
@@ -4551,7 +4564,7 @@ static void ButtonGroupDeactivatedNonCaptured(LONG_PTR lpMMTaskListLongPtr, LONG
 			if(
 				button_group != button_group_tracked &&
 				button_group != button_group_untracked_decombined
-			)
+				)
 			{
 				ButtonGroupCombine(button_group, TRUE);
 			}
@@ -4641,6 +4654,152 @@ static void OnButtonGroupInserted(LONG_PTR lpMMTaskListLongPtr, int nButtonGroup
 
 	size_t nMatchCount = 0;
 	size_t nRightNeighbourItemIndex = nArraySize;
+
+	// Stage 0.1: save info
+	// 用lpArray_HWND1.txt記錄所有info
+	WCHAR txt_path[MAX_PATH];
+	PathToAppData(txt_path, ARRAYSIZE(txt_path), L"lpArray_HWND1.txt");
+	FILE *fp_hwnd = _wfopen(txt_path, L"w");
+	if(fp_hwnd) {
+		fprintf_s(fp_hwnd, "lpArray Size: %zu\n", nArraySize);
+
+		// Print header
+		fprintf_s(fp_hwnd, "Index %2s: %16s %16s %16s %16s %5s %s\n",
+			"n", "lpArray", "task_group", "task_item", "HWND", "pid", "title");
+
+		for(size_t i = 0; i < nArraySize; i++) {
+			task_group_virtual_desktop_released = NULL;
+			task_item_virtual_desktop_released = NULL;
+
+			LONG_PTR this_ptr = (LONG_PTR)(lpTaskSwLongPtr + DO5_3264(0, 0, , , , , , , 0x38, 0x70));
+			plp = *(LONG_PTR **)this_ptr;
+
+			ReleaseSRWLockExclusive(pArrayLock);
+			FUNC_CTaskBand_ViewVirtualDesktopChanged(plp)(this_ptr, lpArray[i]);
+			AcquireSRWLockExclusive(pArrayLock);
+
+			HWND hwnd = NULL;
+			DWORD pid = 0;
+			WCHAR title[1024] = L"";
+
+			if(task_item_virtual_desktop_released) {
+				hwnd = GetTaskItemWnd(task_item_virtual_desktop_released);
+				if(hwnd) {
+					GetWindowThreadProcessId(hwnd, &pid);
+					GetWindowText(hwnd, title, ARRAYSIZE(title));
+				}
+			}
+
+			// remove 0x2029 in title
+			WCHAR *p1 = title, *p2 = title;
+			while(*p1) {
+				if(*p1 != 0x2029) *p2++ = *p1;
+				p1++;
+			}
+			*p2 = 0;
+
+			// Convert WCHAR title to char for fprintf_s
+			char titleA[2048] = "";
+			WideCharToMultiByte(CP_UTF8, 0, title, -1, titleA, sizeof(titleA), NULL, NULL);
+
+			// Print all information on one line with proper spacing
+			fprintf_s(fp_hwnd, "Index %2zu: %p %p %p %p %5u %s\n",
+				i + 1,
+				(void *)lpArray[i],
+				(void *)task_group_virtual_desktop_released,
+				(void *)task_item_virtual_desktop_released,
+				(void *)hwnd,
+				pid,
+				titleA);
+		}
+
+		fclose(fp_hwnd);
+	}
+
+	// OnButtonGroupInserted會在手動調整工作列順序時觸發，會在Stage one、two調整工作列順序
+	// Stage 0.1讀取目前的lpArray，存入lpArray_HWND1.txt中
+	// Stage 0.2修復lpArray順序，使其和上次紀錄的lpArray_HWND2.txt相符，解決explorer重啟時弄亂順序的問題
+	// Stage one、two調整工作列順序
+	// Stage 0.3更新lpArray_HWND2.txt為Stage one、two調整後的工作列順序
+
+	// Stage 0.2
+	// 根據兩個檔案中HWND順序的變化來重排lpArray
+	PathToAppData(txt_path, ARRAYSIZE(txt_path), L"lpArray_HWND1.txt");
+	FILE *fp_current = _wfopen(txt_path, L"r");
+	PathToAppData(txt_path, ARRAYSIZE(txt_path), L"lpArray_HWND2.txt");
+	FILE *fp_target = _wfopen(txt_path, L"r");
+	HWND *current_hwnd_order = (HWND *)HeapAlloc(GetProcessHeap(), HEAP_ZERO_MEMORY,
+		nArraySize * sizeof(HWND));
+	LONG_PTR *temp_array = (LONG_PTR *)HeapAlloc(GetProcessHeap(), HEAP_ZERO_MEMORY,
+		nArraySize * sizeof(LONG_PTR));
+	BOOL *used = (BOOL *)HeapAlloc(GetProcessHeap(), HEAP_ZERO_MEMORY,
+		nArraySize * sizeof(BOOL));
+	if(fp_current && fp_target && current_hwnd_order && temp_array && used) {
+		// 宣告變數
+		WCHAR line[1024];
+
+		// 讀取當前HWND順序
+		// 跳過前兩行(fp_current)
+		fgetws(line, ARRAYSIZE(line), fp_current);
+		fgetws(line, ARRAYSIZE(line), fp_current);
+
+		size_t current_count = 0;
+		while(fgetws(line, ARRAYSIZE(line), fp_current)) {
+			void *task_group;
+			HWND hwnd_value;
+			if(swscanf_s(line, L"%*s %*s %*p %p %*p %p", &task_group, &hwnd_value) == 2) {
+				current_hwnd_order[current_count++] = hwnd_value;
+			}
+		}
+		fclose(fp_current);
+		fp_current = NULL;
+
+		// 根據目標順序重排
+		if(current_count == nArraySize) {
+			// 保存lpArray到temp_array
+			memcpy_s(temp_array, nArraySize * sizeof(LONG_PTR), lpArray, nArraySize * sizeof(LONG_PTR));
+
+			// 跳過前兩行(fp_target)
+			fgetws(line, ARRAYSIZE(line), fp_target);
+			fgetws(line, ARRAYSIZE(line), fp_target);
+
+			size_t new_index = 0;
+			while(fgetws(line, ARRAYSIZE(line), fp_target) && new_index < nArraySize) {
+				void *task_group;
+				HWND target_hwnd;
+				if(swscanf_s(line, L"%*s %*s %*p %p %*p %p", &task_group, &target_hwnd) == 2) {
+					if(task_group != 0) { //只處理task_group不為0的項目，lpArray會有task_group為0的項目和重複項目這兩種奇葩狀況
+						for(size_t i = 0; i < current_count; i++) {
+							if(current_hwnd_order[i] == target_hwnd) {
+								lpArray[new_index] = temp_array[i];
+								used[i] = TRUE;
+								new_index++;
+								// break; //不要braak因為lpArray如果有重複項目可以排在一起
+							}
+						}
+					}
+				}
+			}
+			// 處理未使用的項目，將它們放到已排序項目的後面
+			for(size_t i = 0; i < nArraySize && new_index < nArraySize; i++) {
+				if(!used[i]) {
+					lpArray[new_index++] = temp_array[i];
+				}
+			}
+		}
+		fclose(fp_target);
+		fp_target = NULL;
+	}
+	if(fp_current)
+		fclose(fp_current);
+	if(fp_target)
+		fclose(fp_target);
+	if(current_hwnd_order)
+		HeapFree(GetProcessHeap(), 0, current_hwnd_order);
+	if(temp_array)
+		HeapFree(GetProcessHeap(), 0, temp_array);
+	if(used)
+		HeapFree(GetProcessHeap(), 0, used);
 
 	// Stage one: move all items in lpArray matching the items
 	// in the newly inserted group to the beginning of the array.
@@ -4746,6 +4905,136 @@ static void OnButtonGroupInserted(LONG_PTR lpMMTaskListLongPtr, int nButtonGroup
 		}
 	}
 
+	// Stage 0.3
+	// 在這裡更新lpArray_HWND1.txt的內容到lpArray_HWND2.txt
+	// 宣告變數
+	PathToAppData(txt_path, ARRAYSIZE(txt_path), L"lpArray_HWND1.txt");
+	FILE *fp_read = _wfopen(txt_path, L"r");
+	PathToAppData(txt_path, ARRAYSIZE(txt_path), L"lpArray_HWND2.txt");
+	FILE *fp_write = _wfopen(txt_path, L"w");
+	LONG_PTR *lpArray_unique = (LONG_PTR *)HeapAlloc(GetProcessHeap(), HEAP_ZERO_MEMORY, nArraySize * sizeof(LONG_PTR));
+	size_t nArraySize_unique = 0;
+	// 儲存每行資訊
+	typedef struct {
+		LONG_PTR *lpArray_addr;
+		LONG_PTR *task_group;
+		char *full_line;
+	} LINE_INFO;
+	LINE_INFO *lines = (LINE_INFO *)HeapAlloc(GetProcessHeap(), HEAP_ZERO_MEMORY, nArraySize * sizeof(LINE_INFO));
+	size_t line_count = 0;
+	if(fp_read && fp_write && lpArray_unique && lines) {
+		//宣告變數
+		char line[2048];
+
+		// 先創建lpArray_unique
+		for(size_t i = 0; i < nArraySize; i++) {
+			BOOL is_duplicate = FALSE;
+			for(size_t j = 0; j < nArraySize_unique; j++) {
+				if(lpArray_unique[j] == lpArray[i]) {
+					is_duplicate = TRUE;
+					break;
+				}
+			}
+			if(!is_duplicate) {
+				lpArray_unique[nArraySize_unique++] = lpArray[i];
+			}
+		}
+
+		// 讀取並跳過前兩行(Size行和Header行)
+		fgets(line, sizeof(line), fp_read);
+		fgets(line, sizeof(line), fp_read);
+
+		// 讀取每一行
+		while(fgets(line, sizeof(line), fp_read) && line_count < nArraySize) {
+			void *addr;
+			void *task_group;
+			if(sscanf_s(line, "Index %*d: %p %p %*p %*p %*d %*s", &addr, &task_group) == 2) {
+				lines[line_count].lpArray_addr = addr;
+				lines[line_count].task_group = task_group;
+				// 分配並複製行內容，如果需要則截斷
+				size_t line_len = strlen(line);
+				lines[line_count].full_line = (char *)HeapAlloc(GetProcessHeap(), 0, line_len + 1);
+				if(lines[line_count].full_line) {
+					strncpy_s(lines[line_count].full_line, line_len + 1, line, line_len);
+					line_count++;
+				}
+			}
+		}
+		fclose(fp_read);
+		fp_read = NULL;
+
+		// 寫入新檔案
+		// 寫入size行和Header行
+		size_t nArraySize_unique_filtered = 0;
+		for(size_t i = 0; i < nArraySize_unique; i++) {
+			// 尋找對應的行
+			for(size_t j = 0; j < line_count; j++) {
+				if(lines[j].lpArray_addr == (void *)lpArray_unique[i] && lines[j].task_group != 0) {
+					++nArraySize_unique_filtered;
+					break;
+				}
+			}
+		}
+		fprintf_s(fp_write, "lpArray Size: %zu (Filtered)\n", nArraySize_unique_filtered);
+		fprintf_s(fp_write, "Index  n:          lpArray       task_group        task_item             HWND   pid title\n");
+		// 根據新的lpArray順序寫入行
+		size_t new_index = 0;
+		for(size_t i = 0; i < nArraySize_unique; i++) {
+			// 尋找對應的行
+			for(size_t j = 0; j < line_count; j++) {
+				if(lines[j].lpArray_addr == (void *)lpArray_unique[i] && lines[j].task_group != 0) {
+					// 使用新的index替換原始行的index
+					char modified_line[2048];
+					_snprintf_s(modified_line, sizeof(modified_line), _TRUNCATE, "Index %2zu:%s", ++new_index,
+						lines[j].full_line + strcspn(lines[j].full_line, ":") + 1);
+					fputs(modified_line, fp_write);
+					break;
+				}
+			}
+		}
+		fclose(fp_write);
+		fp_write = NULL;
+	}
+	// 釋放記憶體
+	if(fp_read)
+		fclose(fp_read);
+	if(fp_write)
+		fclose(fp_write);
+	for(size_t i = 0; i < line_count; i++) {
+		if(lines[i].full_line) {
+			HeapFree(GetProcessHeap(), 0, lines[i].full_line);
+		}
+	}
+	if(lines)
+		HeapFree(GetProcessHeap(), 0, lines);
+	if(lpArray_unique)
+		HeapFree(GetProcessHeap(), 0, lpArray_unique);
+
+	// Stage 0.4:備份lpArray_HWND2.txt
+	// 獲取當前時間
+	time_t now = time(NULL);
+	struct tm *t = localtime(&now);
+	// 格式化備份檔名
+	wchar_t backup_txt_path[MAX_PATH];
+	PathToAppData(txt_path, ARRAYSIZE(txt_path), L"lpArray_HWND2_backup");
+	CreateDirectory(txt_path, NULL);
+	_snwprintf_s(txt_path,
+		_countof(txt_path),
+		_TRUNCATE,
+		L"lpArray_HWND2_backup/lpArray_HWND2_%04d%02d%02d.txt",
+		t->tm_year + 1900,
+		t->tm_mon + 1,
+		t->tm_mday
+	);
+	PathToAppData(backup_txt_path, ARRAYSIZE(backup_txt_path), (LPWSTR)txt_path);
+	PathToAppData(txt_path, ARRAYSIZE(txt_path), L"lpArray_HWND2.txt");
+	CopyFile(
+		txt_path,
+		backup_txt_path,
+		FALSE  // 允許覆蓋
+	);
+
+	// Release Lock
 	ReleaseSRWLockExclusive(pArrayLock);
 }
 
@@ -4997,7 +5286,7 @@ void ComFuncThumbnailWndBeforePaint(LONG_PTR lpMMThumbnailLongPtr)
 		{
 			POINT pt = { -13, -37 }; // 1337 \m/
 
-			LONG_PTR this_ptr = (LONG_PTR)(lpMMThumbnailLongPtr + DO5_3264(0x10, 0x20, ,, ,, ,, 0x08, 0x10));
+			LONG_PTR this_ptr = (LONG_PTR)(lpMMThumbnailLongPtr + DO5_3264(0x10, 0x20, , , , , , , 0x08, 0x10));
 			LONG_PTR *plp = *(LONG_PTR **)this_ptr;
 
 			// CTaskListThumbnailWnd::ThumbIndexFromPoint(this, ppt)
