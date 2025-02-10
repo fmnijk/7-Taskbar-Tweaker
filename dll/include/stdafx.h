@@ -1,6 +1,11 @@
 #pragma once
 
 #define WIN32_LEAN_AND_MEAN             // Exclude rarely-used stuff from Windows headers
+// C headers
+#include <stdio.h>
+#include <time.h>
+
+// Windows headers
 #include <windows.h>
 #include <shellapi.h>
 #include <commctrl.h>

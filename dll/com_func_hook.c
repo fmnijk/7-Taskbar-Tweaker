@@ -4709,7 +4709,7 @@ static void OnButtonGroupInserted(LONG_PTR lpMMTaskListLongPtr, int nButtonGroup
 			{
 				// The current item in lpArray matches one of the
 				// buttons in the newly added item.
-				if(i > (size_t)nMatchCount)
+				if(i > nMatchCount)
 				{
 					LONG_PTR lpTemp = lpArray[i];
 					memmove(&lpArray[nMatchCount + 1], &lpArray[nMatchCount], (i - nMatchCount) * sizeof(LONG_PTR));
