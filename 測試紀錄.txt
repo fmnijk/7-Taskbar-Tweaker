@@ -1,0 +1,89 @@
+//Windows
+//上改成下
+C:\Users\user\AppData\Roaming\7+ Taskbar Tweaker\lpArray_HWND1.txt
+C:/Users/user/AppData/Roaming/7+ Taskbar Tweaker/lpArray_HWND1.txt
+
+安全函數修改:
+    swprintf(): 不安全，應該使用 _snwprintf_s() [要加_TRUNCATE參數]
+    snprintf(): 不安全，應該使用 _snprintf_s() [要加_TRUNCATE參數]
+    _wfopen() : 相對安全，但可以考慮使用 _wfopen_s()
+    fprintf() : 不安全，應該使用 fprintf_s()
+    swscanf() : 不安全，應該使用 swscanf_s()
+    sscanf()  : 不安全，應該使用 sscanf_s()
+    fgetws()  : 需要指定最大長度，基本安全
+    fgets()   : 需要指定最大長度，基本安全
+    fputs()   : 基本安全
+
+修改1 /utf-8
+    dll和exe專案屬性>[C/C++]>[命令列]添加/utf-8參數
+修改2 GetTickCount() -> GetTickCount64()
+    //上改成下
+    static DWORD a;
+    static ULONGLONG a;
+    //上改成下
+    a = GetTickCount();
+    a = GetTickCount64();
+    //上改成下
+    wsprintf(a, L"%u", GetTickCount64());
+    wsprintf(a, L"%llu", GetTickCount64());
+    //上改成下
+    DWORD a(){}
+    ULONGLONG a(){}
+修改3 消除變數未初始化警告
+修改4 消除正在取值 NULL 指標警告
+修改5 消除找不到函式定義警告
+    消除"找不到 'ManipulateUserPreferences' 的函式定義。"警告 (前向宣告的參數類型不匹配)
+修改6 int -> size_t
+    int改成size_t
+    並移除型別轉換(size_t)a
+修改7 檔案總管重啟後可透過操作還原工作列順序
+    com_func_hook.c
+    stdafx.h
+
+RefreshTaskbarHardcore
+SetOptions
+
+LRESULT OnCommand(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lParam, DLG_PARAM *pDlgParam)
+SendOptionsMessage(ExplorerGetTaskbarWnd(), hWnd, pDlgParam->nOptions);
+
+LRESULT SendOptionsMessage(HWND hWnd, HWND hSenderWnd, int pOptions[OPTS_COUNT])
+{
+	COPYDATASTRUCT cds;
+
+	cds.dwData = 0xDEADBEEF;
+	cds.cbData = OPTS_BUFF;
+	cds.lpData = pOptions;
+
+	return SendMessage(hWnd, WM_COPYDATA, (WPARAM)hSenderWnd, (LPARAM)&cds);
+}
+
+目前的限制:
+    1.不分組 (不分組時，修復工作列順序並切換虛擬桌面後，工作列順序和lpArray才會完全相符)
+    2.手動調整工作列順序 (觸發OnButtonGroupInserted修復工作列順序)
+    3.切換虛擬桌面 (切換虛擬桌面時，Explorer會重新渲染工作列，此時才能反應lpArray的變化)
+檔案總管重啟後修復步驟:
+    1.切換成不分組讓她們可以自由活動
+    2.切換虛擬桌面讓她們符合lpArray的順序
+    3.手動調整工作列順序觸發修復
+    4.再次切換虛擬桌面讓她們符合lpArray修復後的順序
+    5.切換回按程式ID分組
+
+腳本還在開發測試階段，工作列順序暫定永久保存到txt檔中，而不是記憶體，方便調試並且可以重啟7+ Taskbar Tweaker
+
+FUNC_CWindowTaskItem_GetWindow
+
+    DPA_InsertPtrHook Windows程式在DPA動態指針陣列中加入指針時觸發
+    ComFuncVirtualDesktopFixAfterDPA_InsertPtr 手動調整工作列順序時觸發
+    OnButtonGroupInserted 手動調整工作列順序時觸發
+virtual_desktop_order_fix
+    OPT_EX_VIRTUAL_DESKTOP_ORDER_FIX
+Drag within/between groups using right mouse button
+    OPT_GROUPING_RIGHTDRAG
+drag to reorder
+    OPT_THUMB_REORDER
+
+Visual Studio使用UTF-8:
+    /utf-8可立即改
+        https://learn.microsoft.com/zh-tw/cpp/build/reference/utf-8-set-source-and-executable-character-sets-to-utf-8?view=msvc-170
+    預設編碼要等到17.13 Preview 1才能改
+        https://learn.microsoft.com/en-us/visualstudio/ide/how-to-save-and-open-files-with-encoding?view=vs-2022
