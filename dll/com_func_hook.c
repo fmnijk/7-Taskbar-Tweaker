@@ -4599,7 +4599,7 @@ static void OnButtonGroupInserted(LONG_PTR lpMMTaskListLongPtr, int nButtonGroup
 		return;
 
 	LONG_PTR *plp = (LONG_PTR *)hButtonGroupsDpa;
-	int button_groups_count = (int)plp[0];
+	size_t button_groups_count = (size_t)plp[0];
 	LONG_PTR **button_groups = (LONG_PTR **)plp[1];
 	LONG_PTR *button_group = button_groups[nButtonGroupIndex];
 
@@ -4607,7 +4607,7 @@ static void OnButtonGroupInserted(LONG_PTR lpMMTaskListLongPtr, int nButtonGroup
 	if(!plp)
 		return;
 
-	int buttons_count = (int)plp[0];
+	size_t buttons_count = (size_t)plp[0];
 	LONG_PTR **buttons = (LONG_PTR **)plp[1];
 	if(buttons_count == 0)
 		return;
@@ -4617,7 +4617,7 @@ static void OnButtonGroupInserted(LONG_PTR lpMMTaskListLongPtr, int nButtonGroup
 	if(!plp)
 		return;
 
-	int task_items_count = (int)plp[0];
+	size_t task_items_count = (size_t)plp[0];
 	if(task_items_count == 0)
 		return;
 
@@ -4639,7 +4639,7 @@ static void OnButtonGroupInserted(LONG_PTR lpMMTaskListLongPtr, int nButtonGroup
 	LONG_PTR *lpArray = *EV_APP_VIEW_MGR_APP_ARRAY(lpAppViewMgr);
 	size_t nArraySize = *EV_APP_VIEW_MGR_APP_ARRAY_SIZE(lpAppViewMgr);
 
-	int nMatchCount = 0;
+	size_t nMatchCount = 0;
 	size_t nRightNeighbourItemIndex = nArraySize;
 
 	// Stage one: move all items in lpArray matching the items
@@ -4654,7 +4654,7 @@ static void OnButtonGroupInserted(LONG_PTR lpMMTaskListLongPtr, int nButtonGroup
 		task_group_virtual_desktop_released = NULL;
 		task_item_virtual_desktop_released = NULL;
 
-		LONG_PTR this_ptr = (LONG_PTR)(lpTaskSwLongPtr + DO5_3264(0, 0, ,, ,, ,, 0x38, 0x70));
+		LONG_PTR this_ptr = (LONG_PTR)(lpTaskSwLongPtr + DO5_3264(0, 0, , , , , , , 0x38, 0x70));
 		plp = *(LONG_PTR **)this_ptr;
 
 		ReleaseSRWLockExclusive(pArrayLock);
@@ -4679,7 +4679,7 @@ static void OnButtonGroupInserted(LONG_PTR lpMMTaskListLongPtr, int nButtonGroup
 		{
 			if(nRightNeighbourItemIndex == nArraySize)
 			{
-				for(int j = nButtonGroupIndex + 1; j < button_groups_count; j++)
+				for(size_t j = nButtonGroupIndex + 1; j < button_groups_count; j++)
 				{
 					LONG_PTR *check_button_group = button_groups[j];
 					LONG_PTR *check_task_group = (LONG_PTR *)check_button_group[DO2(3, 4)];
@@ -4700,7 +4700,7 @@ static void OnButtonGroupInserted(LONG_PTR lpMMTaskListLongPtr, int nButtonGroup
 		if(!task_item_virtual_desktop_released)
 			continue;
 
-		for(int j = 0; j < buttons_count; j++)
+		for(size_t j = 0; j < buttons_count; j++)
 		{
 			LONG_PTR *button = buttons[j];
 			LONG_PTR *task_item = (LONG_PTR *)button[DO2(3, 4)];
