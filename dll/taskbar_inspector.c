@@ -155,7 +155,7 @@ void CloseInspectorDlg()
 	}
 }
 
-DWORD GetInspectorCloseTime()
+ULONGLONG GetInspectorCloseTime()
 {
 	return dwInspectorCloseTime;
 }

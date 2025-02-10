@@ -3023,7 +3023,7 @@ static LRESULT CALLBACK NewThumbnailProc(HWND hWnd, UINT uMsg, WPARAM wParam, LP
 {
 	static int dragged_thumb_index = -1;
 	static BOOL bDragDone;
-	static DWORD dwLastWheelMinimizeTickCount, dwLastWheelRestoreTickCount;
+	static ULONGLONG dwLastWheelMinimizeTickCount, dwLastWheelRestoreTickCount;
 	LONG_PTR lpMMThumbnailLongPtr;
 	int tracked_thumb_index;
 	int active_thumb_index;

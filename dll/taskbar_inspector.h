@@ -2,7 +2,7 @@
 
 BOOL ShowInspectorDlg();
 void CloseInspectorDlg();
-DWORD GetInspectorCloseTime();
+ULONGLONG GetInspectorCloseTime();
 
 BOOL InspectorBeforeTaskbarRefresh();
 BOOL InspectorAfterTaskbarRefresh();
