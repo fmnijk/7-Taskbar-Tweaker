@@ -4,6 +4,11 @@
     https://ramensoftware.com/contact
     https://github.com/m417z/7-Taskbar-Tweaker
 
+lpArray有多種問題要處理:
+    task_group可為0
+    lpArray項目可重複(通常是Explorer自身)
+lpArray_HWND1.txt過濾掉兩者後可得lpArray_HWND2.txt
+
 //Windows
 //上改成下
 C:\Users\user\AppData\Roaming\7+ Taskbar Tweaker\lpArray_HWND1.txt
