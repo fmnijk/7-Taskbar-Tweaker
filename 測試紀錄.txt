@@ -1,3 +1,9 @@
+網址
+    https://tweaker.userecho.com/communities/1/topics/110-order-lost-when-updating#comment-6233
+    https://ramensoftware.com/7-taskbar-tweaker/comment-page-54?replytocom=15015#respond
+    https://ramensoftware.com/contact
+    https://github.com/m417z/7-Taskbar-Tweaker
+
 //Windows
 //上改成下
 C:\Users\user\AppData\Roaming\7+ Taskbar Tweaker\lpArray_HWND1.txt
