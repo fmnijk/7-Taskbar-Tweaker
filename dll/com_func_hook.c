@@ -267,7 +267,7 @@ static void OnButtonGroupHotTrackOut(LONG_PTR *button_group);
 static BOOL __stdcall ShouldShowToolTipHook(LONG_PTR *button_group, LONG_PTR *task_item);
 static LONG_PTR __stdcall SecondaryGetUserPreferencesHook(LONG_PTR var1, DWORD *pdwPreferences);
 static LONG_PTR __stdcall SecondaryIsHorizontalHook(LONG_PTR this_ptr);
-static DWORD ManipulateUserPreferences(DWORD dwPreferences, void *pReturnAddress);
+static DWORD ManipulateUserPreferences(DWORD dwPreferences, void **pReturnAddress);
 static BOOL CheckCombineButtonGroup(LONG_PTR *button_group);
 static BOOL ButtonGroupCombine(LONG_PTR *button_group, BOOL bCombine);
 static void CombineUntrackedDecombined(LONG_PTR lpMMTaskListLongPtr, LONG_PTR *button_group);
