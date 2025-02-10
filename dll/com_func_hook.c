@@ -625,7 +625,7 @@ static BOOL HookTaskGroupFunctions()
 
 	int task_groups_count = (int)plp[0];
 	LONG_PTR **task_groups = (LONG_PTR **)plp[1];
-	LONG_PTR *task_group;
+	LONG_PTR *task_group = NULL;
 
 	int i;
 	for(i = 0; i < task_groups_count; i++)
@@ -4364,7 +4364,7 @@ static LONG_PTR *ButtonGroupNextToMousePos(LONG_PTR lpMMTaskListLongPtr, HWND hE
 	RECT rcVisibleTaskList;
 	POINT ptCursor;
 	RECT *prcGroup;
-	POINT ptGroupCenter;
+	POINT ptGroupCenter = { 0,0 };
 	long last_edge;
 	RECT rc1, rc2;
 	int i;
