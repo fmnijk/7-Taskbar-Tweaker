@@ -153,3 +153,6 @@ Explorer會卡死:
 
 新點子:
     可以每次觸發修復排序時都備份reg到reg或txt
+
+Windows 11:
+    https://windhawk.net
