@@ -1,3 +1,11 @@
+官網重點
+    TTLib
+        7+ Taskbar Tweaking Library
+        https://ramensoftware.com/7-taskbar-tweaking-library
+
+官網
+    https://ramensoftware.com/7-taskbar-tweaker
+
 網址
     https://tweaker.userecho.com/communities/1/topics/110-order-lost-when-updating#comment-6233
     https://ramensoftware.com/7-taskbar-tweaker/comment-page-54?replytocom=15015#respond
@@ -39,6 +47,7 @@ fprintf_s改用fprintf
 
 已知問題:
     設定成不分組時，重啟7+或Explorer時，只有目前的桌面會變成不分組，虛擬桌面不會變成不分組
+        https://tweaker.userecho.com/communities/1/topics/310-some-options-eg-grouping-dont-apply-immediately-for-windows-in-different-virtual-desktops-in?redirect_to_reply=7650#comment-7650
 
 修改1 /utf-8
     dll和exe專案屬性>[C/C++]>[命令列]添加/utf-8參數
