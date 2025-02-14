@@ -487,9 +487,9 @@ static void BackupTaskbarOrderForTaskList(LONG_PTR lpMMTaskListLongPtr, LONG_PTR
 // Timer 處理函數
 // 把魔術數字改為命名常量
 #define RESTORE_ORDER_TIMER_ID 8465157
-#define RESTORE_ORDER_DELAY 1000 // 1000ms延遲
+#define RESTORE_ORDER_DELAY 250 // 250ms延遲
 #define REFRESH_WAIT_TIMER_ID 8465158
-#define REFRESH_WAIT_DELAY 100 // 100ms延遲
+#define REFRESH_WAIT_DELAY 250 // 250ms延遲
 static BOOL OPT_GROUPING_MODIFIED = FALSE;
 
 // 處理延遲的恢復順序 Timer 處理函數
