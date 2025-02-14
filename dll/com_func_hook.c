@@ -152,19 +152,6 @@ static void **ppSecondaryIsHorizontal;
 static void *pSecondaryIsHorizontal;
 POINTER_REDIRECTION_VAR(static POINTER_REDIRECTION prSecondaryIsHorizontal);
 
-static LPWSTR PathToAppData(LPWSTR buffer, size_t bufferSize, LPCWSTR relativePath)
-{
-	// 獲取 AppData Roaming 路徑
-	if(SUCCEEDED(SHGetFolderPathW(NULL, CSIDL_APPDATA, NULL, 0, buffer))) {
-		// 加上基礎路徑
-		PathAppendW(buffer, L"7+ Taskbar Tweaker");
-		// 加上相對路徑
-		PathAppendW(buffer, relativePath);
-		return buffer;
-	}
-	return NULL;
-}
-
 // hook vars
 static BOOL bTaskGroupFunctionsHooked;
 static BOOL bTaskItemFunctionsHooked;
@@ -305,6 +292,551 @@ static BOOL DisableHook(void **ppTarget, POINTER_REDIRECTION *ppr);
 static BOOL MMMoveNearMatching(LONG_PTR lpMMTaskListLongPtr, HWND hButtonWnd);
 static BOOL CustomGetLabelAppidListValue(WCHAR *pAppId, int *pnListValue);
 
+// 把相對路徑變成7+ Taskbar Tweaker AppData絕對路徑
+static LPWSTR PathToAppData(LPWSTR outBuffer, LPCWSTR relativePath)
+{
+	if(!outBuffer || !relativePath) {
+		return NULL;
+	}
+
+	// 先備份相對路徑
+	WCHAR tempPath[MAX_PATH];
+	wcscpy_s(tempPath, MAX_PATH, relativePath);
+
+	WCHAR appDataPath[MAX_PATH];
+	// 獲取 AppData Roaming 路徑
+	if(!SUCCEEDED(SHGetFolderPathW(NULL, CSIDL_APPDATA, NULL, 0, appDataPath))) {
+		return NULL;
+	}
+
+	// 複製基礎路徑到輸出緩衝區
+	wcscpy_s(outBuffer, MAX_PATH, appDataPath);
+	// 加上基礎路徑
+	PathAppendW(outBuffer, L"7+ Taskbar Tweaker");
+	// 使用備份的相對路徑
+	PathAppendW(outBuffer, tempPath);
+
+	return outBuffer;
+}
+
+// 恢復該工作列的順序
+// 檔案總管重啟修復
+// 保存每個工作列的按鈕順序
+
+// 判斷工作列索引(0=主要,1~N=副螢幕)
+static size_t GetTaskbarIndex(LONG_PTR lpMMTaskListLongPtr) {
+	if(lpMMTaskListLongPtr == lpTaskListLongPtr) {
+		return 0;  // 主要工作列
+	}
+
+	// 計算副螢幕工作列的索引
+	SECONDARY_TASK_LIST_GET secondary_task_list_get;
+	LONG_PTR lpSecondaryTaskListLongPtr = SecondaryTaskListGetFirstLongPtr(&secondary_task_list_get);
+	size_t index = 1;
+
+	while(lpSecondaryTaskListLongPtr) {
+		if(lpSecondaryTaskListLongPtr == lpMMTaskListLongPtr) {
+			return index;
+		}
+		lpSecondaryTaskListLongPtr = SecondaryTaskListGetNextLongPtr(&secondary_task_list_get);
+		index++;
+	}
+
+	return (size_t)-1;  // 不應該發生
+}
+
+// 備份工作列順序
+static void BackupTaskbarOrderForTaskList(LONG_PTR lpMMTaskListLongPtr, LONG_PTR *plp, int button_groups_count,
+	LONG_PTR **button_groups, LONG_PTR lpAppViewMgr, SRWLOCK *pArrayLock, LONG_PTR *lpArray, size_t nArraySize) {
+
+	// 獲取工作列索引
+	size_t taskbarIndex = GetTaskbarIndex(lpMMTaskListLongPtr);
+
+	// 構建註冊表值名稱
+	WCHAR valueName[MAX_PATH];
+	_snwprintf_s(valueName, _countof(valueName), _TRUNCATE, L"taskbar_order_%zu", taskbarIndex);
+
+	// 從註冊表讀取現有的 HWND 列表
+	HKEY hKey;
+	WCHAR *existingHwnds = NULL;
+	DWORD dwSize = 0;
+	BOOL *existingHwndsValid = NULL;
+	size_t existingHwndsCount = 0;
+
+	// 嘗試打開註冊表
+	if(RegOpenKeyExW(HKEY_CURRENT_USER, L"Software\\7 Taskbar Tweaker\\Taskbar Order", 0, KEY_READ, &hKey) == ERROR_SUCCESS) {
+		if(RegQueryValueExW(hKey, valueName, NULL, NULL, NULL, &dwSize) == ERROR_SUCCESS && dwSize > 0) {
+			existingHwnds = (WCHAR *)HeapAlloc(GetProcessHeap(), HEAP_ZERO_MEMORY, dwSize);
+			if(!existingHwnds) {
+				RegCloseKey(hKey);
+				return;
+			}
+
+			if(RegQueryValueExW(hKey, valueName, NULL, NULL, (LPBYTE)existingHwnds, &dwSize) != ERROR_SUCCESS) {
+				HeapFree(GetProcessHeap(), 0, existingHwnds);
+				RegCloseKey(hKey);
+				return;
+			}
+
+			// 計算現有HWND數量
+			WCHAR *pCurrent = existingHwnds;
+			while(*pCurrent) {
+				existingHwndsCount++;
+				pCurrent += wcslen(pCurrent) + 1;
+			}
+
+			// 分配有效性標記數組
+			existingHwndsValid = (BOOL *)HeapAlloc(GetProcessHeap(), HEAP_ZERO_MEMORY,
+				existingHwndsCount * sizeof(BOOL));
+			if(!existingHwndsValid) {
+				HeapFree(GetProcessHeap(), 0, existingHwnds);
+				RegCloseKey(hKey);
+				return;
+			}
+			memset(existingHwndsValid, TRUE, existingHwndsCount * sizeof(BOOL));
+		}
+		RegCloseKey(hKey);
+	}
+
+	// 準備新的 HWND 列表
+	WCHAR *newHwnds = (WCHAR *)HeapAlloc(GetProcessHeap(), HEAP_ZERO_MEMORY, MAX_PATH * 50);  // 調整大小以適應需求
+	size_t newHwndsLength = 0;
+
+	if(!newHwnds) {
+		if(existingHwnds) HeapFree(GetProcessHeap(), 0, existingHwnds);
+		if(existingHwndsValid) HeapFree(GetProcessHeap(), 0, existingHwndsValid);
+		return;
+	}
+
+	// 第一步: 添加 button_groups 中的 HWND
+	for(int i = 0; i < button_groups_count; i++) {
+		int button_group_type = (int)button_groups[i][DO2(6, 8)];
+		if(button_group_type != 1 && button_group_type != 3) continue;
+
+		LONG_PTR *plp_buttons = (LONG_PTR *)button_groups[i][DO2(5, 7)];
+		int buttons_count = (int)plp_buttons[0];
+		if(buttons_count <= 0) continue;
+
+		LONG_PTR **buttons = (LONG_PTR **)plp_buttons[1];
+		for(int j = 0; j < buttons_count; j++) {
+			LONG_PTR *task_item = (LONG_PTR *)buttons[j][DO2(3, 4)];
+			HWND hwnd = GetTaskItemWnd(task_item);
+			if(!hwnd) continue;
+
+			// 將HWND新增到新列表
+			WCHAR hex[32];
+			_snwprintf_s(hex, _countof(hex), _TRUNCATE, L"%p", (void *)hwnd);
+
+			// 檢查是否已存在於existingHwnds中
+			if(existingHwnds) {
+				WCHAR *pCurrent = existingHwnds;
+				size_t index = 0;
+				while(*pCurrent) {
+					HWND existingHwnd;
+					swscanf_s(pCurrent, L"%p", &existingHwnd);
+					if(existingHwnd == hwnd) {
+						existingHwndsValid[index] = FALSE; // 標記為已處理
+						break;
+					}
+					pCurrent += wcslen(pCurrent) + 1;
+					index++;
+				}
+			}
+
+			wcscpy_s(newHwnds + newHwndsLength, MAX_PATH * 50 - newHwndsLength, hex);
+			newHwndsLength += wcslen(hex) + 1;
+		}
+	}
+
+	// 第二步: 添加剩餘的有效existingHwnds項目
+	if(existingHwnds && existingHwndsValid) {
+		WCHAR *pCurrent = existingHwnds;
+		size_t index = 0;
+		while(*pCurrent) {
+			if(existingHwndsValid[index]) {
+				HWND hwnd;
+				swscanf_s(pCurrent, L"%p", &hwnd);
+				if(IsWindow(hwnd)) { // 確認窗口仍然存在
+					wcscpy_s(newHwnds + newHwndsLength, MAX_PATH * 50 - newHwndsLength, pCurrent);
+					newHwndsLength += wcslen(pCurrent) + 1;
+				}
+			}
+			pCurrent += wcslen(pCurrent) + 1;
+			index++;
+		}
+	}
+
+	// 添加結束標記
+	newHwnds[newHwndsLength] = L'\0';
+
+	// 將最終結果寫入註冊表
+	if(RegCreateKeyExW(HKEY_CURRENT_USER, L"Software\\7 Taskbar Tweaker\\Taskbar Order", 0, NULL,
+		REG_OPTION_NON_VOLATILE, KEY_WRITE, NULL, &hKey, NULL) == ERROR_SUCCESS) {
+		RegSetValueExW(hKey, valueName, 0, REG_MULTI_SZ, (BYTE *)newHwnds,
+			(DWORD)((newHwndsLength + 1) * sizeof(WCHAR)));
+		RegCloseKey(hKey);
+	}
+
+	// 清理
+	if(existingHwnds) HeapFree(GetProcessHeap(), 0, existingHwnds);
+	if(existingHwndsValid) HeapFree(GetProcessHeap(), 0, existingHwndsValid);
+	if(newHwnds) HeapFree(GetProcessHeap(), 0, newHwnds);
+}
+
+// Explorer重啟時恢復工作列順序
+// Timer 處理函數
+// 把魔術數字改為命名常量
+#define RESTORE_ORDER_TIMER_ID 8465157
+#define RESTORE_ORDER_DELAY 500 // 500ms延遲
+#define REFRESH_WAIT_TIMER_ID 8465158
+#define REFRESH_WAIT_DELAY 50 // 50ms延遲
+static BOOL OPT_GROUPING_MODIFIED = FALSE;
+
+// 處理延遲的恢復順序 Timer 處理函數
+static void HandleDelayedRestore(HWND hWnd, UINT uMsg, UINT_PTR idEvent, DWORD dwTime);
+
+// Explorer重啟或7+重啟時呼叫
+static void RestoreTaskbarOrder() {
+	// 設置延遲執行
+	SetTimer(hTaskListWnd, RESTORE_ORDER_TIMER_ID, RESTORE_ORDER_DELAY, HandleDelayedRestore);
+}
+
+// 輔助函數：獲取任意task_group和task_items
+static BOOL GetAnyTaskGroupAndItems(LONG_PTR lpMMTaskListLongPtr, LONG_PTR **out_task_group, LONG_PTR ***out_task_items) {
+	LONG_PTR *plp = (LONG_PTR *)*EV_MM_TASKLIST_BUTTON_GROUPS_HDPA(lpMMTaskListLongPtr);
+	if(!plp) return FALSE;
+
+	size_t button_groups_count = (size_t)plp[0];
+	LONG_PTR **button_groups = (LONG_PTR **)plp[1];
+
+	for(size_t i = 0; i < button_groups_count; i++) {
+		LONG_PTR *button_group = button_groups[i];
+		plp = (LONG_PTR *)button_group[DO2(5, 7)];
+		if(!plp) continue;
+
+		size_t buttons_count = (size_t)plp[0];
+		if(buttons_count == 0) continue;
+
+		*out_task_group = (LONG_PTR *)button_group[DO2(3, 4)];
+		plp = (LONG_PTR *)(*out_task_group)[4];
+		if(!plp) continue;
+
+		size_t task_items_count = (size_t)plp[0];
+		if(task_items_count == 0) continue;
+
+		*out_task_items = (LONG_PTR **)plp[1];
+		return TRUE;
+	}
+
+	return FALSE;
+}
+
+static BOOL MoveButtonToIndex(LONG_PTR lpMMTaskListLongPtr, HWND hTargetWnd, int targetIndex)
+{
+	LONG_PTR *plp;
+	int button_groups_count;
+	LONG_PTR **button_groups;
+	int button_group_type;
+	int buttons_count;
+	LONG_PTR **buttons;
+	LONG_PTR *task_item;
+	HWND hButtonWnd;
+	int i;
+
+	// 獲取button_groups數組
+	plp = (LONG_PTR *)*EV_MM_TASKLIST_BUTTON_GROUPS_HDPA(lpMMTaskListLongPtr);
+	if(!plp)
+		return FALSE;
+
+	button_groups_count = (int)plp[0];
+	button_groups = (LONG_PTR **)plp[1];
+
+	// 檢查目標索引是否有效
+	if(targetIndex >= button_groups_count)
+		targetIndex = button_groups_count - 1;
+	if(targetIndex < 0)
+		targetIndex = 0;
+
+	// 遍歷所有button_groups尋找目標窗口
+	for(i = 0; i < button_groups_count; i++)
+	{
+		button_group_type = (int)button_groups[i][DO2(6, 8)];
+		if(button_group_type == 1 || button_group_type == 3)
+		{
+			plp = (LONG_PTR *)button_groups[i][DO2(5, 7)];
+			buttons_count = (int)plp[0];
+			buttons = (LONG_PTR **)plp[1];
+
+			// 檢查每個按鈕的窗口句柄
+			if(buttons_count > 0)
+			{
+				task_item = (LONG_PTR *)buttons[0][DO2(3, 4)];
+				hButtonWnd = GetTaskItemWnd(task_item);
+
+				if(hButtonWnd == hTargetWnd)
+				{
+					// 找到目標按鈕,如果不在目標位置就移動
+					if(i != targetIndex)
+					{
+						TaskbarMoveGroup(lpMMTaskListLongPtr, i, targetIndex);
+						return TRUE;
+					}
+					break;
+				}
+			}
+		}
+	}
+
+	return FALSE;
+}
+
+// 恢復按鈕順序
+static void RestoreTaskbarOrderForTaskList_buttons(LONG_PTR lpMMTaskListLongPtr, WCHAR *hwndsData) {
+	// 取得目前工作列上所有按鈕群組的資訊
+	LONG_PTR *plp = (LONG_PTR *)*EV_MM_TASKLIST_BUTTON_GROUPS_HDPA(lpMMTaskListLongPtr);
+	if(!plp) return;
+
+	int button_groups_count = (int)plp[0];
+	LONG_PTR **button_groups = (LONG_PTR **)plp[1];
+
+	// 計算目前在工作列上的按鈕總數
+	size_t current_button_count = 0;
+	for(int i = 0; i < button_groups_count; i++) {
+		int button_group_type = (int)button_groups[i][DO2(6, 8)];
+		if(button_group_type != 1 && button_group_type != 3)
+			continue;
+
+		LONG_PTR *plp_buttons = (LONG_PTR *)button_groups[i][DO2(5, 7)];
+		current_button_count += (size_t)plp_buttons[0];
+	}
+
+	// 依序處理註冊表中的HWND
+	size_t processed_count = 0;
+	WCHAR *pCurrent = hwndsData;
+	while(*pCurrent && processed_count < current_button_count) {
+		HWND hwnd;
+		if(swscanf_s(pCurrent, L"%p", &hwnd) == 1) {
+			// 檢查此HWND是否存在於目前的按鈕群組中
+			BOOL found = FALSE;
+			for(int i = 0; i < button_groups_count && !found; i++) {
+				int button_group_type = (int)button_groups[i][DO2(6, 8)];
+				if(button_group_type != 1 && button_group_type != 3)
+					continue;
+
+				LONG_PTR *plp_buttons = (LONG_PTR *)button_groups[i][DO2(5, 7)];
+				int buttons_count = (int)plp_buttons[0];
+				if(buttons_count <= 0)
+					continue;
+
+				LONG_PTR **buttons = (LONG_PTR **)plp_buttons[1];
+				for(int j = 0; j < buttons_count; j++) {
+					LONG_PTR *task_item = (LONG_PTR *)buttons[j][DO2(3, 4)];
+					HWND buttonHwnd = GetTaskItemWnd(task_item);
+					if(buttonHwnd == hwnd) {
+						found = TRUE;
+						break;
+					}
+				}
+			}
+
+			// 如果在目前的工作列上找到這個HWND，就移動它
+			if(found) {
+				MoveButtonToIndex(lpMMTaskListLongPtr, hwnd, (int)processed_count);
+				processed_count++;
+			}
+		}
+		pCurrent += wcslen(pCurrent) + 1;
+	}
+}
+
+// 恢復lpArray順序
+static void RestoreTaskbarOrderForTaskList_lpArray(LONG_PTR lpMMTaskListLongPtr, WCHAR *hwndsData) {
+	// 設置PointerRedirection
+	LONG_PTR *task_group = NULL;
+	LONG_PTR **task_items = NULL;
+	if(!GetAnyTaskGroupAndItems(lpMMTaskListLongPtr, &task_group, &task_items)) {
+		return;
+	}
+
+	// 設置PointerRedirection
+	LONG_PTR *plp = *(LONG_PTR **)task_group;
+	void **ppTaskGroupRelease = (void **)&plp[2];
+	PointerRedirectionAdd(ppTaskGroupRelease, TaskGroupReleaseHook, &prTaskGroupRelease);
+
+	plp = *(LONG_PTR **)task_items[0];
+	void **ppTaskItemRelease = (void **)&plp[2];
+	PointerRedirectionAdd(ppTaskItemRelease, TaskItemReleaseHook, &prTaskItemRelease);
+
+	// 獲取AppViewMgr相關信息
+	LONG_PTR lpAppViewMgr = *EV_TASK_SW_APP_VIEW_MGR();
+	SRWLOCK *pArrayLock = EV_APP_VIEW_MGR_APP_ARRAY_LOCK(lpAppViewMgr);
+
+	AcquireSRWLockExclusive(pArrayLock);
+
+	LONG_PTR *lpArray = *EV_APP_VIEW_MGR_APP_ARRAY(lpAppViewMgr);
+	size_t nArraySize = *EV_APP_VIEW_MGR_APP_ARRAY_SIZE(lpAppViewMgr);
+
+	// 創建臨時數組
+	LONG_PTR *lpArrayNew = (LONG_PTR *)HeapAlloc(GetProcessHeap(), HEAP_ZERO_MEMORY,
+		nArraySize * sizeof(LONG_PTR));
+	BOOL *usedFlags = (BOOL *)HeapAlloc(GetProcessHeap(), HEAP_ZERO_MEMORY,
+		nArraySize * sizeof(BOOL));
+
+	if(!lpArrayNew || !usedFlags) {
+		if(lpArrayNew) HeapFree(GetProcessHeap(), 0, lpArrayNew);
+		if(usedFlags) HeapFree(GetProcessHeap(), 0, usedFlags);
+		PointerRedirectionRemove(ppTaskGroupRelease, &prTaskGroupRelease);
+		PointerRedirectionRemove(ppTaskItemRelease, &prTaskItemRelease);
+		ReleaseSRWLockExclusive(pArrayLock);
+		return;
+	}
+
+	// 重新排序lpArray
+	size_t newArrayIndex = 0;
+	WCHAR *pCurrent = hwndsData;
+	while(*pCurrent) {
+		HWND targetHwnd;
+		swscanf_s(pCurrent, L"%p", &targetHwnd);
+
+		// 尋找對應的lpArray項
+		for(size_t i = 0; i < nArraySize; i++) {
+			if(usedFlags[i]) continue;
+
+			task_group_virtual_desktop_released = NULL;
+			task_item_virtual_desktop_released = NULL;
+
+			LONG_PTR this_ptr = (LONG_PTR)(lpTaskSwLongPtr + DO5_3264(0, 0, , , , , , , 0x38, 0x70));
+			plp = *(LONG_PTR **)this_ptr;
+
+			ReleaseSRWLockExclusive(pArrayLock);
+			FUNC_CTaskBand_ViewVirtualDesktopChanged(plp)(this_ptr, lpArray[i]);
+			AcquireSRWLockExclusive(pArrayLock);
+
+			if(task_item_virtual_desktop_released) {
+				HWND hwnd = GetTaskItemWnd(task_item_virtual_desktop_released);
+				if(hwnd == targetHwnd) {
+					lpArrayNew[newArrayIndex++] = lpArray[i];
+					usedFlags[i] = TRUE;
+					break;
+				}
+			}
+		}
+
+		pCurrent += wcslen(pCurrent) + 1;
+	}
+
+	// 添加剩餘未使用的項目
+	for(size_t i = 0; i < nArraySize; i++) {
+		if(!usedFlags[i]) {
+			lpArrayNew[newArrayIndex++] = lpArray[i];
+		}
+	}
+
+	// 將重排後的數組複製回原始位置
+	memcpy(lpArray, lpArrayNew, nArraySize * sizeof(LONG_PTR));
+
+	// 清理資源
+	HeapFree(GetProcessHeap(), 0, usedFlags);
+	HeapFree(GetProcessHeap(), 0, lpArrayNew);
+	PointerRedirectionRemove(ppTaskGroupRelease, &prTaskGroupRelease);
+	PointerRedirectionRemove(ppTaskItemRelease, &prTaskItemRelease);
+	ReleaseSRWLockExclusive(pArrayLock);
+}
+
+// 恢復指定工作列的按鈕順序（主函數）
+static void RestoreTaskbarOrderForTaskList(LONG_PTR lpMMTaskListLongPtr) {
+	// 獲取工作列索引
+	size_t taskbarIndex = GetTaskbarIndex(lpMMTaskListLongPtr);
+
+	// 構建註冊表值名稱
+	WCHAR valueName[MAX_PATH];
+	_snwprintf_s(valueName, _countof(valueName), _TRUNCATE, L"taskbar_order_%zu", taskbarIndex);
+
+	// 從註冊表讀取HWND列表
+	HKEY hKey;
+	WCHAR *hwndsData = NULL;
+	DWORD dwSize = 0;
+
+	if(RegOpenKeyExW(HKEY_CURRENT_USER, L"Software\\7 Taskbar Tweaker\\Taskbar Order", 0, KEY_READ, &hKey) != ERROR_SUCCESS) {
+		return;
+	}
+
+	if(RegQueryValueExW(hKey, valueName, NULL, NULL, NULL, &dwSize) != ERROR_SUCCESS || dwSize == 0) {
+		RegCloseKey(hKey);
+		return;
+	}
+
+	hwndsData = (WCHAR *)HeapAlloc(GetProcessHeap(), HEAP_ZERO_MEMORY, dwSize);
+	if(!hwndsData) {
+		RegCloseKey(hKey);
+		return;
+	}
+
+	if(RegQueryValueExW(hKey, valueName, NULL, NULL, (LPBYTE)hwndsData, &dwSize) != ERROR_SUCCESS) {
+		HeapFree(GetProcessHeap(), 0, hwndsData);
+		RegCloseKey(hKey);
+		return;
+	}
+
+	RegCloseKey(hKey);
+
+	// 要先恢復lpArray再恢復buttons
+	// 因為調整buttons時會觸發OnButtonGroupInserted函數
+	// OnButtonGroupInserted假設lpArray是正確的
+	// 所以要先恢復lpArray確保lpArray是正確的
+	// 本來是這樣但
+	//
+
+	// 恢復按鈕順序
+	RestoreTaskbarOrderForTaskList_buttons(lpMMTaskListLongPtr, hwndsData);
+
+	// 恢復lpArray順序
+	RestoreTaskbarOrderForTaskList_lpArray(lpMMTaskListLongPtr, hwndsData);
+
+	// 清理資源
+	HeapFree(GetProcessHeap(), 0, hwndsData);
+}
+
+// 處理延遲的恢復順序 Timer 處理函數
+static void HandleDelayedRestore(HWND hWnd, UINT uMsg, UINT_PTR idEvent, DWORD dwTime) {
+	if(idEvent == RESTORE_ORDER_TIMER_ID) {
+		KillTimer(hWnd, idEvent);
+
+		// 只在第一次進入時修改分組選項
+		if(!OPT_GROUPING_MODIFIED && nOptions[OPT_GROUPING] == 0) {
+			OPT_GROUPING_MODIFIED = TRUE;
+			nOptions[OPT_GROUPING] = 1;
+			RefreshTaskbarHardcore();
+			SetTimer(hWnd, REFRESH_WAIT_TIMER_ID, REFRESH_WAIT_DELAY, HandleDelayedRestore);
+			return;
+		}
+
+		// 恢復主要工作列
+		RestoreTaskbarOrderForTaskList(lpTaskListLongPtr);
+
+		// 恢復所有副螢幕工作列
+		if(TaskbarGetPreference(lpTaskListLongPtr) & 0x400) {
+			SECONDARY_TASK_LIST_GET secondary_task_list_get;
+			LONG_PTR lpSecondaryTaskListLongPtr = SecondaryTaskListGetFirstLongPtr(&secondary_task_list_get);
+			while(lpSecondaryTaskListLongPtr) {
+				RestoreTaskbarOrderForTaskList(lpSecondaryTaskListLongPtr);
+				lpSecondaryTaskListLongPtr = SecondaryTaskListGetNextLongPtr(&secondary_task_list_get);
+			}
+		}
+
+		// 如果之前修改過分組選項，現在還原它
+		if(OPT_GROUPING_MODIFIED) {
+			nOptions[OPT_GROUPING] = 0;
+			RefreshTaskbarHardcore();
+			OPT_GROUPING_MODIFIED = FALSE;
+		}
+	}
+	else if(idEvent == REFRESH_WAIT_TIMER_ID) {
+		KillTimer(hWnd, idEvent);
+		HandleDelayedRestore(hWnd, WM_TIMER, RESTORE_ORDER_TIMER_ID, 0);
+	}
+}
+
 BOOL ComFuncHook_Init(void(*hackf1)(LONG_PTR))
 {
 	// Kinda hack: func to subclasses a secondary taskbar (multimonitor environment)
@@ -315,6 +847,8 @@ BOOL ComFuncHook_Init(void(*hackf1)(LONG_PTR))
 		UnhookFunctions();
 		return FALSE;
 	}
+
+	RestoreTaskbarOrder();
 
 	return TRUE;
 }
@@ -4132,20 +4666,20 @@ static DWORD ManipulateUserPreferences(DWORD dwPreferences, void **ppAddressOfRe
 		// A8 01 | TEST AL, 01
 		if(pbCode &&
 			pbCode[0] == 0xA8 && pbCode[1] == 0x01)
-			{
-				pbCode += 2;
+		{
+			pbCode += 2;
 
-				// 0F84 XXXXXXXX | JZ XXXXXXXX
-				// -OR-
-				// 74 XX | JZ SHORT XXXXXXXX
-				if((pbCode[0] == 0x0F && pbCode[1] == 0x84) ||
-					pbCode[0] == 0x74)
-				{
-					selective_combining_hack = 3;
-				}
+			// 0F84 XXXXXXXX | JZ XXXXXXXX
+			// -OR-
+			// 74 XX | JZ SHORT XXXXXXXX
+			if((pbCode[0] == 0x0F && pbCode[1] == 0x84) ||
+				pbCode[0] == 0x74)
+			{
+				selective_combining_hack = 3;
 			}
-#endif // WIN64
 		}
+#endif // WIN64
+	}
 
 	// A hack for selective combining.
 	// How to check whether the hack works:
@@ -4172,7 +4706,7 @@ static DWORD ManipulateUserPreferences(DWORD dwPreferences, void **ppAddressOfRe
 	}
 
 	return dwNewPreferences;
-	}
+}
 
 static BOOL CheckCombineButtonGroup(LONG_PTR *button_group)
 {
@@ -4576,6 +5110,16 @@ static void ButtonGroupDeactivatedNonCaptured(LONG_PTR lpMMTaskListLongPtr, LONG
 
 void ComFuncVirtualDesktopFixAfterDPA_InsertPtr(HDPA pdpa, int index, void *p, void *pRet)
 {
+	/*
+	pdpa:Pointer to Dynamic Pointer Array
+	lpTaskListLongPtr:Long Pointer to TaskList
+		主螢幕的工作列
+	lpSecondaryTaskListLongPtr:Long Pointer to TaskList
+		副螢幕的工作列
+	EV_MM_TASKLIST_BUTTON_GROUPS_HDPA
+		取得工作列按鈕
+	*/
+
 	if(nWinVersion >= WIN_VERSION_10_T1 && nOptionsEx[OPT_EX_VIRTUAL_DESKTOP_ORDER_FIX] &&
 		index != INT_MAX)
 	{
@@ -4603,6 +5147,125 @@ void ComFuncVirtualDesktopFixAfterDPA_InsertPtr(HDPA pdpa, int index, void *p, v
 	}
 }
 
+// Debug
+static void DebuglpArrayInformation(LONG_PTR *plp, LONG_PTR lpAppViewMgr, SRWLOCK *pArrayLock, LONG_PTR *lpArray, size_t nArraySize) {
+	// Stage 0.1: save info
+	// 用lpArray_HWND.txt記錄所有info
+	WCHAR txt_path[MAX_PATH];
+	PathToAppData(txt_path, L"lpArray_HWND.txt");
+
+	// Open the file for writing
+	FILE *fp_hwnd = _wfopen(txt_path, L"w");
+	if(!fp_hwnd) {
+		return;
+	}
+
+	// Count valid entries first
+	size_t validEntries = 0;
+	for(size_t i = 0; i < nArraySize; i++) {
+		task_group_virtual_desktop_released = NULL;
+		task_item_virtual_desktop_released = NULL;
+
+		LONG_PTR this_ptr = (LONG_PTR)(lpTaskSwLongPtr + DO5_3264(0, 0, , , , , , , 0x38, 0x70));
+		plp = *(LONG_PTR **)this_ptr;
+
+		ReleaseSRWLockExclusive(pArrayLock);
+		FUNC_CTaskBand_ViewVirtualDesktopChanged(plp)(this_ptr, lpArray[i]);
+		AcquireSRWLockExclusive(pArrayLock);
+
+		if(task_group_virtual_desktop_released && task_item_virtual_desktop_released) {
+			validEntries++;
+		}
+	}
+
+	// Write header with correct size
+	fprintf_s(fp_hwnd, "lpArray Size: %zu\n", validEntries);
+	fprintf_s(fp_hwnd, "Index %2s: %16s %16s %16s %16s %5s %s\n",
+		"n", "lpArray", "task_group", "task_item", "HWND", "pid", "title");
+
+	// Process entries with correct indexing
+	size_t currentIndex = 1;
+	for(size_t i = 0; i < nArraySize; i++) {
+		task_group_virtual_desktop_released = NULL;
+		task_item_virtual_desktop_released = NULL;
+
+		LONG_PTR this_ptr = (LONG_PTR)(lpTaskSwLongPtr + DO5_3264(0, 0, , , , , , , 0x38, 0x70));
+		plp = *(LONG_PTR **)this_ptr;
+
+		ReleaseSRWLockExclusive(pArrayLock);
+		FUNC_CTaskBand_ViewVirtualDesktopChanged(plp)(this_ptr, lpArray[i]);
+		AcquireSRWLockExclusive(pArrayLock);
+
+		// Only process valid entries
+		if(!task_group_virtual_desktop_released || !task_item_virtual_desktop_released) {
+			continue;
+		}
+
+		HWND hwnd = NULL;
+		DWORD pid = 0;
+		WCHAR title[1024] = L"";
+
+		if(task_item_virtual_desktop_released) {
+			hwnd = GetTaskItemWnd(task_item_virtual_desktop_released);
+			if(hwnd) {
+				GetWindowThreadProcessId(hwnd, &pid);
+				GetWindowText(hwnd, title, ARRAYSIZE(title));
+			}
+		}
+
+		// Clean up title text (remove 0x2029)
+		WCHAR *p1 = title, *p2 = title;
+		while(*p1) {
+			if(*p1 != 0x2029) *p2++ = *p1;
+			p1++;
+		}
+		*p2 = 0;
+
+		// Convert WCHAR title to char for fprintf_s
+		char titleA[2048] = "";
+		WideCharToMultiByte(CP_UTF8, 0, title, -1, titleA, sizeof(titleA), NULL, NULL);
+
+		// Print with proper index
+		fprintf_s(fp_hwnd, "Index %2zu: %p %p %p %p %5u %s\n",
+			currentIndex++,
+			(void *)lpArray[i],
+			(void *)task_group_virtual_desktop_released,
+			(void *)task_item_virtual_desktop_released,
+			(void *)hwnd,
+			pid,
+			titleA);
+	}
+
+	fclose(fp_hwnd);
+}
+
+static void DebuglpArrayInformation_Backup() {
+	// Stage 0.4:備份lpArray_HWND.txt
+	// 獲取當前時間
+	time_t now = time(NULL);
+	struct tm *t = localtime(&now);
+	// 格式化備份檔名
+	WCHAR txt_path[MAX_PATH];
+	wchar_t backup_txt_path[MAX_PATH];
+	PathToAppData(txt_path, L"lpArray_HWND_backup");
+	CreateDirectory(txt_path, NULL);
+	_snwprintf_s(backup_txt_path,
+		_countof(backup_txt_path),
+		_TRUNCATE,
+		L"lpArray_HWND_backup/lpArray_HWND_%04d%02d%02d.txt",
+		t->tm_year + 1900,
+		t->tm_mon + 1,
+		t->tm_mday
+	);
+	PathToAppData(txt_path, L"lpArray_HWND.txt");
+	PathToAppData(backup_txt_path, backup_txt_path);
+	CopyFile(
+		txt_path,
+		backup_txt_path,
+		FALSE  // 允許覆蓋
+	);
+}
+
 static void OnButtonGroupInserted(LONG_PTR lpMMTaskListLongPtr, int nButtonGroupIndex)
 {
 	// assert(nWinVersion >= WIN_VERSION_10_T1)
@@ -4612,7 +5275,7 @@ static void OnButtonGroupInserted(LONG_PTR lpMMTaskListLongPtr, int nButtonGroup
 		return;
 
 	LONG_PTR *plp = (LONG_PTR *)hButtonGroupsDpa;
-	size_t button_groups_count = (size_t)plp[0];
+	int button_groups_count = (int)plp[0];
 	LONG_PTR **button_groups = (LONG_PTR **)plp[1];
 	LONG_PTR *button_group = button_groups[nButtonGroupIndex];
 
@@ -4620,7 +5283,7 @@ static void OnButtonGroupInserted(LONG_PTR lpMMTaskListLongPtr, int nButtonGroup
 	if(!plp)
 		return;
 
-	size_t buttons_count = (size_t)plp[0];
+	int buttons_count = (int)plp[0];
 	LONG_PTR **buttons = (LONG_PTR **)plp[1];
 	if(buttons_count == 0)
 		return;
@@ -4630,7 +5293,7 @@ static void OnButtonGroupInserted(LONG_PTR lpMMTaskListLongPtr, int nButtonGroup
 	if(!plp)
 		return;
 
-	size_t task_items_count = (size_t)plp[0];
+	int task_items_count = (int)plp[0];
 	if(task_items_count == 0)
 		return;
 
@@ -4652,154 +5315,8 @@ static void OnButtonGroupInserted(LONG_PTR lpMMTaskListLongPtr, int nButtonGroup
 	LONG_PTR *lpArray = *EV_APP_VIEW_MGR_APP_ARRAY(lpAppViewMgr);
 	size_t nArraySize = *EV_APP_VIEW_MGR_APP_ARRAY_SIZE(lpAppViewMgr);
 
-	size_t nMatchCount = 0;
+	int nMatchCount = 0;
 	size_t nRightNeighbourItemIndex = nArraySize;
-
-	// Stage 0.1: save info
-	// 用lpArray_HWND1.txt記錄所有info
-	WCHAR txt_path[MAX_PATH];
-	PathToAppData(txt_path, ARRAYSIZE(txt_path), L"lpArray_HWND1.txt");
-	FILE *fp_hwnd = _wfopen(txt_path, L"w");
-	if(fp_hwnd) {
-		fprintf_s(fp_hwnd, "lpArray Size: %zu\n", nArraySize);
-
-		// Print header
-		fprintf_s(fp_hwnd, "Index %2s: %16s %16s %16s %16s %5s %s\n",
-			"n", "lpArray", "task_group", "task_item", "HWND", "pid", "title");
-
-		for(size_t i = 0; i < nArraySize; i++) {
-			task_group_virtual_desktop_released = NULL;
-			task_item_virtual_desktop_released = NULL;
-
-			LONG_PTR this_ptr = (LONG_PTR)(lpTaskSwLongPtr + DO5_3264(0, 0, , , , , , , 0x38, 0x70));
-			plp = *(LONG_PTR **)this_ptr;
-
-			ReleaseSRWLockExclusive(pArrayLock);
-			FUNC_CTaskBand_ViewVirtualDesktopChanged(plp)(this_ptr, lpArray[i]);
-			AcquireSRWLockExclusive(pArrayLock);
-
-			HWND hwnd = NULL;
-			DWORD pid = 0;
-			WCHAR title[1024] = L"";
-
-			if(task_item_virtual_desktop_released) {
-				hwnd = GetTaskItemWnd(task_item_virtual_desktop_released);
-				if(hwnd) {
-					GetWindowThreadProcessId(hwnd, &pid);
-					GetWindowText(hwnd, title, ARRAYSIZE(title));
-				}
-			}
-
-			// remove 0x2029 in title
-			WCHAR *p1 = title, *p2 = title;
-			while(*p1) {
-				if(*p1 != 0x2029) *p2++ = *p1;
-				p1++;
-			}
-			*p2 = 0;
-
-			// Convert WCHAR title to char for fprintf_s
-			char titleA[2048] = "";
-			WideCharToMultiByte(CP_UTF8, 0, title, -1, titleA, sizeof(titleA), NULL, NULL);
-
-			// Print all information on one line with proper spacing
-			fprintf_s(fp_hwnd, "Index %2zu: %p %p %p %p %5u %s\n",
-				i + 1,
-				(void *)lpArray[i],
-				(void *)task_group_virtual_desktop_released,
-				(void *)task_item_virtual_desktop_released,
-				(void *)hwnd,
-				pid,
-				titleA);
-		}
-
-		fclose(fp_hwnd);
-	}
-
-	// OnButtonGroupInserted會在手動調整工作列順序時觸發，會在Stage one、two調整工作列順序
-	// Stage 0.1讀取目前的lpArray，存入lpArray_HWND1.txt中
-	// Stage 0.2修復lpArray順序，使其和上次紀錄的lpArray_HWND2.txt相符，解決explorer重啟時弄亂順序的問題
-	// Stage one、two調整工作列順序
-	// Stage 0.3更新lpArray_HWND2.txt為Stage one、two調整後的工作列順序
-
-	// Stage 0.2
-	// 根據兩個檔案中HWND順序的變化來重排lpArray
-	PathToAppData(txt_path, ARRAYSIZE(txt_path), L"lpArray_HWND1.txt");
-	FILE *fp_current = _wfopen(txt_path, L"r");
-	PathToAppData(txt_path, ARRAYSIZE(txt_path), L"lpArray_HWND2.txt");
-	FILE *fp_target = _wfopen(txt_path, L"r");
-	HWND *current_hwnd_order = (HWND *)HeapAlloc(GetProcessHeap(), HEAP_ZERO_MEMORY,
-		nArraySize * sizeof(HWND));
-	LONG_PTR *temp_array = (LONG_PTR *)HeapAlloc(GetProcessHeap(), HEAP_ZERO_MEMORY,
-		nArraySize * sizeof(LONG_PTR));
-	BOOL *used = (BOOL *)HeapAlloc(GetProcessHeap(), HEAP_ZERO_MEMORY,
-		nArraySize * sizeof(BOOL));
-	if(fp_current && fp_target && current_hwnd_order && temp_array && used) {
-		// 宣告變數
-		WCHAR line[1024];
-
-		// 讀取當前HWND順序
-		// 跳過前兩行(fp_current)
-		fgetws(line, ARRAYSIZE(line), fp_current);
-		fgetws(line, ARRAYSIZE(line), fp_current);
-
-		size_t current_count = 0;
-		while(fgetws(line, ARRAYSIZE(line), fp_current)) {
-			void *task_group;
-			HWND hwnd_value;
-			if(swscanf_s(line, L"%*s %*s %*p %p %*p %p", &task_group, &hwnd_value) == 2) {
-				current_hwnd_order[current_count++] = hwnd_value;
-			}
-		}
-		fclose(fp_current);
-		fp_current = NULL;
-
-		// 根據目標順序重排
-		if(current_count == nArraySize) {
-			// 保存lpArray到temp_array
-			memcpy_s(temp_array, nArraySize * sizeof(LONG_PTR), lpArray, nArraySize * sizeof(LONG_PTR));
-
-			// 跳過前兩行(fp_target)
-			fgetws(line, ARRAYSIZE(line), fp_target);
-			fgetws(line, ARRAYSIZE(line), fp_target);
-
-			size_t new_index = 0;
-			while(fgetws(line, ARRAYSIZE(line), fp_target) && new_index < nArraySize) {
-				void *task_group;
-				HWND target_hwnd;
-				if(swscanf_s(line, L"%*s %*s %*p %p %*p %p", &task_group, &target_hwnd) == 2) {
-					if(task_group != 0) { //只處理task_group不為0的項目，lpArray會有task_group為0的項目和重複項目這兩種奇葩狀況
-						for(size_t i = 0; i < current_count; i++) {
-							if(current_hwnd_order[i] == target_hwnd) {
-								lpArray[new_index] = temp_array[i];
-								used[i] = TRUE;
-								new_index++;
-								// break; //不要braak因為lpArray如果有重複項目可以排在一起
-							}
-						}
-					}
-				}
-			}
-			// 處理未使用的項目，將它們放到已排序項目的後面
-			for(size_t i = 0; i < nArraySize && new_index < nArraySize; i++) {
-				if(!used[i]) {
-					lpArray[new_index++] = temp_array[i];
-				}
-			}
-		}
-		fclose(fp_target);
-		fp_target = NULL;
-	}
-	if(fp_current)
-		fclose(fp_current);
-	if(fp_target)
-		fclose(fp_target);
-	if(current_hwnd_order)
-		HeapFree(GetProcessHeap(), 0, current_hwnd_order);
-	if(temp_array)
-		HeapFree(GetProcessHeap(), 0, temp_array);
-	if(used)
-		HeapFree(GetProcessHeap(), 0, used);
 
 	// Stage one: move all items in lpArray matching the items
 	// in the newly inserted group to the beginning of the array.
@@ -4838,7 +5355,7 @@ static void OnButtonGroupInserted(LONG_PTR lpMMTaskListLongPtr, int nButtonGroup
 		{
 			if(nRightNeighbourItemIndex == nArraySize)
 			{
-				for(size_t j = nButtonGroupIndex + 1; j < button_groups_count; j++)
+				for(int j = nButtonGroupIndex + 1; j < button_groups_count; j++)
 				{
 					LONG_PTR *check_button_group = button_groups[j];
 					LONG_PTR *check_task_group = (LONG_PTR *)check_button_group[DO2(3, 4)];
@@ -4859,7 +5376,7 @@ static void OnButtonGroupInserted(LONG_PTR lpMMTaskListLongPtr, int nButtonGroup
 		if(!task_item_virtual_desktop_released)
 			continue;
 
-		for(size_t j = 0; j < buttons_count; j++)
+		for(int j = 0; j < buttons_count; j++)
 		{
 			LONG_PTR *button = buttons[j];
 			LONG_PTR *task_item = (LONG_PTR *)button[DO2(3, 4)];
@@ -4868,7 +5385,7 @@ static void OnButtonGroupInserted(LONG_PTR lpMMTaskListLongPtr, int nButtonGroup
 			{
 				// The current item in lpArray matches one of the
 				// buttons in the newly added item.
-				if(i > nMatchCount)
+				if(i > (size_t)nMatchCount)
 				{
 					LONG_PTR lpTemp = lpArray[i];
 					memmove(&lpArray[nMatchCount + 1], &lpArray[nMatchCount], (i - nMatchCount) * sizeof(LONG_PTR));
@@ -4881,8 +5398,8 @@ static void OnButtonGroupInserted(LONG_PTR lpMMTaskListLongPtr, int nButtonGroup
 		}
 	}
 
-	PointerRedirectionRemove(ppTaskGroupRelease, &prTaskGroupRelease);
-	PointerRedirectionRemove(ppTaskItemRelease, &prTaskItemRelease);
+	// PointerRedirectionRemove(ppTaskGroupRelease, &prTaskGroupRelease);
+	// PointerRedirectionRemove(ppTaskItemRelease, &prTaskItemRelease);
 
 	// Stage two: move the found items before the item in nRightNeighbourItemIndex.
 
@@ -4905,136 +5422,16 @@ static void OnButtonGroupInserted(LONG_PTR lpMMTaskListLongPtr, int nButtonGroup
 		}
 	}
 
-	// Stage 0.3
-	// 在這裡更新lpArray_HWND1.txt的內容到lpArray_HWND2.txt
-	// 宣告變數
-	PathToAppData(txt_path, ARRAYSIZE(txt_path), L"lpArray_HWND1.txt");
-	FILE *fp_read = _wfopen(txt_path, L"r");
-	PathToAppData(txt_path, ARRAYSIZE(txt_path), L"lpArray_HWND2.txt");
-	FILE *fp_write = _wfopen(txt_path, L"w");
-	LONG_PTR *lpArray_unique = (LONG_PTR *)HeapAlloc(GetProcessHeap(), HEAP_ZERO_MEMORY, nArraySize * sizeof(LONG_PTR));
-	size_t nArraySize_unique = 0;
-	// 儲存每行資訊
-	typedef struct {
-		LONG_PTR *lpArray_addr;
-		LONG_PTR *task_group;
-		char *full_line;
-	} LINE_INFO;
-	LINE_INFO *lines = (LINE_INFO *)HeapAlloc(GetProcessHeap(), HEAP_ZERO_MEMORY, nArraySize * sizeof(LINE_INFO));
-	size_t line_count = 0;
-	if(fp_read && fp_write && lpArray_unique && lines) {
-		//宣告變數
-		char line[2048];
+	// 備份工作列順序
+	BackupTaskbarOrderForTaskList(lpMMTaskListLongPtr, plp, button_groups_count, button_groups, lpAppViewMgr, pArrayLock, lpArray, nArraySize);
 
-		// 先創建lpArray_unique
-		for(size_t i = 0; i < nArraySize; i++) {
-			BOOL is_duplicate = FALSE;
-			for(size_t j = 0; j < nArraySize_unique; j++) {
-				if(lpArray_unique[j] == lpArray[i]) {
-					is_duplicate = TRUE;
-					break;
-				}
-			}
-			if(!is_duplicate) {
-				lpArray_unique[nArraySize_unique++] = lpArray[i];
-			}
-		}
+	// Debug
+	DebuglpArrayInformation(plp, lpAppViewMgr, pArrayLock, lpArray, nArraySize);
+	DebuglpArrayInformation_Backup();
 
-		// 讀取並跳過前兩行(Size行和Header行)
-		fgets(line, sizeof(line), fp_read);
-		fgets(line, sizeof(line), fp_read);
+	PointerRedirectionRemove(ppTaskGroupRelease, &prTaskGroupRelease);
+	PointerRedirectionRemove(ppTaskItemRelease, &prTaskItemRelease);
 
-		// 讀取每一行
-		while(fgets(line, sizeof(line), fp_read) && line_count < nArraySize) {
-			void *addr;
-			void *task_group;
-			if(sscanf_s(line, "Index %*d: %p %p %*p %*p %*d %*s", &addr, &task_group) == 2) {
-				lines[line_count].lpArray_addr = addr;
-				lines[line_count].task_group = task_group;
-				// 分配並複製行內容，如果需要則截斷
-				size_t line_len = strlen(line);
-				lines[line_count].full_line = (char *)HeapAlloc(GetProcessHeap(), 0, line_len + 1);
-				if(lines[line_count].full_line) {
-					strncpy_s(lines[line_count].full_line, line_len + 1, line, line_len);
-					line_count++;
-				}
-			}
-		}
-		fclose(fp_read);
-		fp_read = NULL;
-
-		// 寫入新檔案
-		// 寫入size行和Header行
-		size_t nArraySize_unique_filtered = 0;
-		for(size_t i = 0; i < nArraySize_unique; i++) {
-			// 尋找對應的行
-			for(size_t j = 0; j < line_count; j++) {
-				if(lines[j].lpArray_addr == (void *)lpArray_unique[i] && lines[j].task_group != 0) {
-					++nArraySize_unique_filtered;
-					break;
-				}
-			}
-		}
-		fprintf_s(fp_write, "lpArray Size: %zu (Filtered)\n", nArraySize_unique_filtered);
-		fprintf_s(fp_write, "Index  n:          lpArray       task_group        task_item             HWND   pid title\n");
-		// 根據新的lpArray順序寫入行
-		size_t new_index = 0;
-		for(size_t i = 0; i < nArraySize_unique; i++) {
-			// 尋找對應的行
-			for(size_t j = 0; j < line_count; j++) {
-				if(lines[j].lpArray_addr == (void *)lpArray_unique[i] && lines[j].task_group != 0) {
-					// 使用新的index替換原始行的index
-					char modified_line[2048];
-					_snprintf_s(modified_line, sizeof(modified_line), _TRUNCATE, "Index %2zu:%s", ++new_index,
-						lines[j].full_line + strcspn(lines[j].full_line, ":") + 1);
-					fputs(modified_line, fp_write);
-					break;
-				}
-			}
-		}
-		fclose(fp_write);
-		fp_write = NULL;
-	}
-	// 釋放記憶體
-	if(fp_read)
-		fclose(fp_read);
-	if(fp_write)
-		fclose(fp_write);
-	for(size_t i = 0; i < line_count; i++) {
-		if(lines[i].full_line) {
-			HeapFree(GetProcessHeap(), 0, lines[i].full_line);
-		}
-	}
-	if(lines)
-		HeapFree(GetProcessHeap(), 0, lines);
-	if(lpArray_unique)
-		HeapFree(GetProcessHeap(), 0, lpArray_unique);
-
-	// Stage 0.4:備份lpArray_HWND2.txt
-	// 獲取當前時間
-	time_t now = time(NULL);
-	struct tm *t = localtime(&now);
-	// 格式化備份檔名
-	wchar_t backup_txt_path[MAX_PATH];
-	PathToAppData(txt_path, ARRAYSIZE(txt_path), L"lpArray_HWND2_backup");
-	CreateDirectory(txt_path, NULL);
-	_snwprintf_s(txt_path,
-		_countof(txt_path),
-		_TRUNCATE,
-		L"lpArray_HWND2_backup/lpArray_HWND2_%04d%02d%02d.txt",
-		t->tm_year + 1900,
-		t->tm_mon + 1,
-		t->tm_mday
-	);
-	PathToAppData(backup_txt_path, ARRAYSIZE(backup_txt_path), (LPWSTR)txt_path);
-	PathToAppData(txt_path, ARRAYSIZE(txt_path), L"lpArray_HWND2.txt");
-	CopyFile(
-		txt_path,
-		backup_txt_path,
-		FALSE  // 允許覆蓋
-	);
-
-	// Release Lock
 	ReleaseSRWLockExclusive(pArrayLock);
 }
 

@@ -15,15 +15,30 @@ C:\Users\user\AppData\Roaming\7+ Taskbar Tweaker\lpArray_HWND1.txt
 C:/Users/user/AppData/Roaming/7+ Taskbar Tweaker/lpArray_HWND1.txt
 
 安全函數修改:
-    swprintf(): 不安全，應該使用 _snwprintf_s() [要加_TRUNCATE參數]
-    snprintf(): 不安全，應該使用 _snprintf_s() [要加_TRUNCATE參數]
-    _wfopen() : 相對安全，但可以考慮使用 _wfopen_s()
-    fprintf() : 不安全，應該使用 fprintf_s()
-    swscanf() : 不安全，應該使用 swscanf_s()
-    sscanf()  : 不安全，應該使用 sscanf_s()
-    fgetws()  : 需要指定最大長度，基本安全
-    fgets()   : 需要指定最大長度，基本安全
-    fputs()   : 基本安全
+    swprintf_s():
+    swprintf()  : 不安全，應該使用 _snwprintf_s() [要加_TRUNCATE參數]
+    snprintf_s():
+    snprintf()  : 不安全，應該使用 _snprintf_s() [要加_TRUNCATE參數]
+    _wfopen()   : 相對安全，但可以考慮使用 _wfopen_s()
+    fprintf()   : 不安全，應該使用 fprintf_s()
+    swscanf()   : 不安全，應該使用 swscanf_s()
+    sscanf()    : 不安全，應該使用 sscanf_s()
+    fgetws()    : 需要指定最大長度，基本安全
+    fgets()     : 需要指定最大長度，基本安全
+    fputs()     : 基本安全
+    strcpy_s()  :
+    wsprintf()  :
+
+_wfopen改用_wfopen_s
+fgets改用fgets_s
+sscanf_s
+
+_snwprintf_s改用wsprintf
+strcpy_s改用strcpy
+fprintf_s改用fprintf
+
+已知問題:
+    設定成不分組時，重啟7+或Explorer時，只有目前的桌面會變成不分組，虛擬桌面不會變成不分組
 
 修改1 /utf-8
     dll和exe專案屬性>[C/C++]>[命令列]添加/utf-8參數
@@ -51,22 +66,19 @@ C:/Users/user/AppData/Roaming/7+ Taskbar Tweaker/lpArray_HWND1.txt
     com_func_hook.c
     stdafx.h
 
+不能修改1 else if(TaskbarGetPreference(lpTaskListLongPtr) & 0x200 || TaskbarGetPreference(lpTaskListLongPtr) & 0x400)
+    改成0x200時virtual_desktop_order_fix也有效果
+    但這麼做時拖動副工作列的button會破壞lpArray順序影響主工作列
+    因為0x200時主副工作列的button在lpArray中是共用的
+    所以只能以主工作列為主
+
+TaskbarMoveGroup
+
 RefreshTaskbarHardcore
 SetOptions
 
 LRESULT OnCommand(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lParam, DLG_PARAM *pDlgParam)
 SendOptionsMessage(ExplorerGetTaskbarWnd(), hWnd, pDlgParam->nOptions);
-
-LRESULT SendOptionsMessage(HWND hWnd, HWND hSenderWnd, int pOptions[OPTS_COUNT])
-{
-	COPYDATASTRUCT cds;
-
-	cds.dwData = 0xDEADBEEF;
-	cds.cbData = OPTS_BUFF;
-	cds.lpData = pOptions;
-
-	return SendMessage(hWnd, WM_COPYDATA, (WPARAM)hSenderWnd, (LPARAM)&cds);
-}
 
 目前的限制:
     1.不分組 (不分組時，修復工作列順序並切換虛擬桌面後，工作列順序和lpArray才會完全相符)
@@ -79,7 +91,7 @@ LRESULT SendOptionsMessage(HWND hWnd, HWND hSenderWnd, int pOptions[OPTS_COUNT])
     4.再次切換虛擬桌面讓她們符合lpArray修復後的順序
     5.切換回按程式ID分組
 
-腳本還在開發測試階段，工作列順序暫定永久保存到txt檔中，而不是記憶體，方便調試並且可以重啟7+ Taskbar Tweaker
+腳本還在開發測試階段，工作列順序暫定永久保存到txt檔並備份
 
 FUNC_CWindowTaskItem_GetWindow
 
@@ -98,3 +110,34 @@ Visual Studio使用UTF-8:
         https://learn.microsoft.com/zh-tw/cpp/build/reference/utf-8-set-source-and-executable-character-sets-to-utf-8?view=msvc-170
     預設編碼要等到17.13 Preview 1才能改
         https://learn.microsoft.com/en-us/visualstudio/ide/how-to-save-and-open-files-with-encoding?view=vs-2022
+
+
+static void OnButtonGroupInserted(LONG_PTR lpMMTaskListLongPtr, int nButtonGroupIndex)
+
+else if(nOptions[OPT_GROUPING_OPENNEAR] == 1)
+    ComFuncMoveNearMatching(hButtonWnd);
+
+void ComFuncMoveNearMatching(HWND hButtonWnd)
+static BOOL MMMoveNearMatching(LONG_PTR lpMMTaskListLongPtr, HWND hButtonWnd)
+
+使用者調整button_groups時explorer不會跟著調整lpArray
+切換虛擬桌面會把button_groups變成跟lpArray一樣的排序，因為按鈕消失了，按鈕回來時它只好按造lpArray的順序排序
+所以切換虛擬桌面button_groups會變回來，因為lpArray不會改變
+7+的原理就是讓lpArray會跟著button_groups一起調整
+所以切換虛擬桌面時button_groups變成跟lpArray一樣的排序也無所謂，因為兩個已經是一樣的了
+
+總之7+會讓button_groups變成跟lpArray一樣的排序
+Explorer重啟會重排button_groups和lpArray，兩個排序還不一樣
+所以Explorer重啟會重排button_groups
+切換虛擬桌面又會再次重啟button_groups
+因為7+還沒有同步button_groups和lpArray
+
+保存到txt文件中
+保存到註冊表中
+保存到exe記憶體中(不能保存到dll記憶體中，重啟explorer會丟失數據)
+
+是否需要在      7+啟動時保存taskbar_order0~2.txt
+是否需要在explorer啟動時保存taskbar_order0~2.txt
+
+Explorer會卡死:
+    lpArray可以調整順序，但原本有哪些調整順序後也要一模一樣，不能有多有少
