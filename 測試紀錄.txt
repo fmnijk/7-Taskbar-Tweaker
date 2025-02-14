@@ -150,3 +150,6 @@ Explorer重啟會重排button_groups和lpArray，兩個排序還不一樣
 
 Explorer會卡死:
     lpArray可以調整順序，但原本有哪些調整順序後也要一模一樣，不能有多有少
+
+新點子:
+    可以每次觸發修復排序時都備份reg到reg或txt
