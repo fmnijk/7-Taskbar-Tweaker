@@ -5226,7 +5226,7 @@ static void DebuglpArrayInformation(LONG_PTR *plp, LONG_PTR lpAppViewMgr, SRWLOC
 		WideCharToMultiByte(CP_UTF8, 0, title, -1, titleA, sizeof(titleA), NULL, NULL);
 
 		// Print with proper index
-		fprintf_s(fp_hwnd, "Index %2zu: %p %p %p %p %5u %s\n",
+		fprintf_s(fp_hwnd, "Index %2zu: %p %p %p %p %5lu %s\n",
 			currentIndex++,
 			(void *)lpArray[i],
 			(void *)task_group_virtual_desktop_released,

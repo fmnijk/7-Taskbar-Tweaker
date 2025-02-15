@@ -156,3 +156,12 @@ Explorer會卡死:
 
 Windows 11:
     https://windhawk.net
+
+要顯示警告:
+    設定警告層級/Wall (顯示所有警告)
+    '<': signed/unsigned 不相符
+    將 'type1' 轉換為 'type2'，資料可能遺失
+    #pragma warning(default:4388) https://learn.microsoft.com/zh-tw/cpp/error-messages/compiler-warnings/c4388?view=msvc-170
+    #pragma warning(default:4244) https://learn.microsoft.com/zh-tw/cpp/error-messages/compiler-warnings/compiler-warning-levels-3-and-4-c4244?view=msvc-170
+要隱藏警告:
+    #pragma warning(disable:4711)
