@@ -165,3 +165,8 @@ Windows 11:
     #pragma warning(default:4244) https://learn.microsoft.com/zh-tw/cpp/error-messages/compiler-warnings/compiler-warning-levels-3-and-4-c4244?view=msvc-170
 要隱藏警告:
     #pragma warning(disable:4711)
+
+改用lpArray備份hwnd順序取代button_groups
+    本來是從button_groups讀取hwnd順序備份到reg中
+    但button_groups還要考慮虛擬桌面的問題，步驟較複雜導致有bug
+    所以改用lpArray，因為lpArray是全局的，唯一的

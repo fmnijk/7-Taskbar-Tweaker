@@ -319,157 +319,59 @@ static LPWSTR PathToAppData(LPWSTR outBuffer, LPCWSTR relativePath)
 	return outBuffer;
 }
 
-// 恢復該工作列的順序
+// 恢復工作列的順序
 // 檔案總管重啟修復
-// 保存每個工作列的按鈕順序
-
-// 判斷工作列索引(0=主要,1~N=副螢幕)
-static size_t GetTaskbarIndex(LONG_PTR lpMMTaskListLongPtr) {
-	if(lpMMTaskListLongPtr == lpTaskListLongPtr) {
-		return 0;  // 主要工作列
-	}
-
-	// 計算副螢幕工作列的索引
-	SECONDARY_TASK_LIST_GET secondary_task_list_get;
-	LONG_PTR lpSecondaryTaskListLongPtr = SecondaryTaskListGetFirstLongPtr(&secondary_task_list_get);
-	size_t index = 1;
-
-	while(lpSecondaryTaskListLongPtr) {
-		if(lpSecondaryTaskListLongPtr == lpMMTaskListLongPtr) {
-			return index;
-		}
-		lpSecondaryTaskListLongPtr = SecondaryTaskListGetNextLongPtr(&secondary_task_list_get);
-		index++;
-	}
-
-	return (size_t)-1;  // 不應該發生
-}
+// 保存lpArray的順序
 
 // 備份工作列順序
 static void BackupTaskbarOrderForTaskList(LONG_PTR lpMMTaskListLongPtr, LONG_PTR *plp, int button_groups_count,
 	LONG_PTR **button_groups, LONG_PTR lpAppViewMgr, SRWLOCK *pArrayLock, LONG_PTR *lpArray, size_t nArraySize) {
 
-	// 獲取工作列索引
-	size_t taskbarIndex = GetTaskbarIndex(lpMMTaskListLongPtr);
-
 	// 構建註冊表值名稱
 	WCHAR valueName[MAX_PATH];
-	_snwprintf_s(valueName, _countof(valueName), _TRUNCATE, L"taskbar_order_%zu", taskbarIndex);
-
-	// 從註冊表讀取現有的 HWND 列表
-	HKEY hKey;
-	WCHAR *existingHwnds = NULL;
-	DWORD dwSize = 0;
-	BOOL *existingHwndsValid = NULL;
-	size_t existingHwndsCount = 0;
-
-	// 嘗試打開註冊表
-	if(RegOpenKeyExW(HKEY_CURRENT_USER, L"Software\\7 Taskbar Tweaker\\Taskbar Order", 0, KEY_READ, &hKey) == ERROR_SUCCESS) {
-		if(RegQueryValueExW(hKey, valueName, NULL, NULL, NULL, &dwSize) == ERROR_SUCCESS && dwSize > 0) {
-			existingHwnds = (WCHAR *)HeapAlloc(GetProcessHeap(), HEAP_ZERO_MEMORY, dwSize);
-			if(!existingHwnds) {
-				RegCloseKey(hKey);
-				return;
-			}
-
-			if(RegQueryValueExW(hKey, valueName, NULL, NULL, (LPBYTE)existingHwnds, &dwSize) != ERROR_SUCCESS) {
-				HeapFree(GetProcessHeap(), 0, existingHwnds);
-				RegCloseKey(hKey);
-				return;
-			}
-
-			// 計算現有HWND數量
-			WCHAR *pCurrent = existingHwnds;
-			while(*pCurrent) {
-				existingHwndsCount++;
-				pCurrent += wcslen(pCurrent) + 1;
-			}
-
-			// 分配有效性標記數組
-			existingHwndsValid = (BOOL *)HeapAlloc(GetProcessHeap(), HEAP_ZERO_MEMORY,
-				existingHwndsCount * sizeof(BOOL));
-			if(!existingHwndsValid) {
-				HeapFree(GetProcessHeap(), 0, existingHwnds);
-				RegCloseKey(hKey);
-				return;
-			}
-			memset(existingHwndsValid, TRUE, existingHwndsCount * sizeof(BOOL));
-		}
-		RegCloseKey(hKey);
-	}
+	_snwprintf_s(valueName, _countof(valueName), _TRUNCATE, L"taskbar_order");
 
 	// 準備新的 HWND 列表
-	WCHAR *newHwnds = (WCHAR *)HeapAlloc(GetProcessHeap(), HEAP_ZERO_MEMORY, MAX_PATH * 50);  // 調整大小以適應需求
-	size_t newHwndsLength = 0;
-
+	WCHAR *newHwnds = (WCHAR *)HeapAlloc(GetProcessHeap(), HEAP_ZERO_MEMORY, MAX_PATH * 50);
 	if(!newHwnds) {
-		if(existingHwnds) HeapFree(GetProcessHeap(), 0, existingHwnds);
-		if(existingHwndsValid) HeapFree(GetProcessHeap(), 0, existingHwndsValid);
 		return;
 	}
+	size_t newHwndsLength = 0;
 
-	// 第一步: 添加 button_groups 中的 HWND
-	for(int i = 0; i < button_groups_count; i++) {
-		int button_group_type = (int)button_groups[i][DO2(6, 8)];
-		if(button_group_type != 1 && button_group_type != 3) continue;
+	// 從 lpArray 中獲取所有有效的 HWND
+	for(size_t i = 0; i < nArraySize; i++) {
+		task_group_virtual_desktop_released = NULL;
+		task_item_virtual_desktop_released = NULL;
 
-		LONG_PTR *plp_buttons = (LONG_PTR *)button_groups[i][DO2(5, 7)];
-		int buttons_count = (int)plp_buttons[0];
-		if(buttons_count <= 0) continue;
+		LONG_PTR this_ptr = (LONG_PTR)(lpTaskSwLongPtr + DO5_3264(0, 0, , , , , , , 0x38, 0x70));
+		plp = *(LONG_PTR **)this_ptr;
 
-		LONG_PTR **buttons = (LONG_PTR **)plp_buttons[1];
-		for(int j = 0; j < buttons_count; j++) {
-			LONG_PTR *task_item = (LONG_PTR *)buttons[j][DO2(3, 4)];
-			HWND hwnd = GetTaskItemWnd(task_item);
-			if(!hwnd) continue;
+		ReleaseSRWLockExclusive(pArrayLock);
+		FUNC_CTaskBand_ViewVirtualDesktopChanged(plp)(this_ptr, lpArray[i]);
+		AcquireSRWLockExclusive(pArrayLock);
 
-			// 將HWND新增到新列表
-			WCHAR hex[32];
-			_snwprintf_s(hex, _countof(hex), _TRUNCATE, L"%p", (void *)hwnd);
-
-			// 檢查是否已存在於existingHwnds中
-			if(existingHwnds) {
-				WCHAR *pCurrent = existingHwnds;
-				size_t index = 0;
-				while(*pCurrent) {
-					HWND existingHwnd;
-					swscanf_s(pCurrent, L"%p", &existingHwnd);
-					if(existingHwnd == hwnd) {
-						existingHwndsValid[index] = FALSE; // 標記為已處理
-						break;
-					}
-					pCurrent += wcslen(pCurrent) + 1;
-					index++;
-				}
-			}
-
-			wcscpy_s(newHwnds + newHwndsLength, MAX_PATH * 50 - newHwndsLength, hex);
-			newHwndsLength += wcslen(hex) + 1;
+		// 只處理有效的項目
+		if(!task_group_virtual_desktop_released || !task_item_virtual_desktop_released) {
+			continue;
 		}
-	}
 
-	// 第二步: 添加剩餘的有效existingHwnds項目
-	if(existingHwnds && existingHwndsValid) {
-		WCHAR *pCurrent = existingHwnds;
-		size_t index = 0;
-		while(*pCurrent) {
-			if(existingHwndsValid[index]) {
-				HWND hwnd;
-				swscanf_s(pCurrent, L"%p", &hwnd);
-				if(IsWindow(hwnd)) { // 確認窗口仍然存在
-					wcscpy_s(newHwnds + newHwndsLength, MAX_PATH * 50 - newHwndsLength, pCurrent);
-					newHwndsLength += wcslen(pCurrent) + 1;
-				}
-			}
-			pCurrent += wcslen(pCurrent) + 1;
-			index++;
+		HWND hwnd = GetTaskItemWnd(task_item_virtual_desktop_released);
+		if(!hwnd || !IsWindow(hwnd)) {
+			continue;
 		}
+
+		// 將HWND新增到列表
+		WCHAR hex[32];
+		_snwprintf_s(hex, _countof(hex), _TRUNCATE, L"%p", (void *)hwnd);
+		wcscpy_s(newHwnds + newHwndsLength, MAX_PATH * 50 - newHwndsLength, hex);
+		newHwndsLength += wcslen(hex) + 1;
 	}
 
 	// 添加結束標記
 	newHwnds[newHwndsLength] = L'\0';
 
-	// 將最終結果寫入註冊表
+	// 將列表寫入註冊表
+	HKEY hKey;
 	if(RegCreateKeyExW(HKEY_CURRENT_USER, L"Software\\7 Taskbar Tweaker\\Taskbar Order", 0, NULL,
 		REG_OPTION_NON_VOLATILE, KEY_WRITE, NULL, &hKey, NULL) == ERROR_SUCCESS) {
 		RegSetValueExW(hKey, valueName, 0, REG_MULTI_SZ, (BYTE *)newHwnds,
@@ -478,8 +380,6 @@ static void BackupTaskbarOrderForTaskList(LONG_PTR lpMMTaskListLongPtr, LONG_PTR
 	}
 
 	// 清理
-	if(existingHwnds) HeapFree(GetProcessHeap(), 0, existingHwnds);
-	if(existingHwndsValid) HeapFree(GetProcessHeap(), 0, existingHwndsValid);
 	if(newHwnds) HeapFree(GetProcessHeap(), 0, newHwnds);
 }
 
@@ -745,12 +645,9 @@ static void RestoreTaskbarOrderForTaskList_lpArray(LONG_PTR lpMMTaskListLongPtr,
 
 // 恢復指定工作列的按鈕順序（主函數）
 static void RestoreTaskbarOrderForTaskList(LONG_PTR lpMMTaskListLongPtr) {
-	// 獲取工作列索引
-	size_t taskbarIndex = GetTaskbarIndex(lpMMTaskListLongPtr);
-
 	// 構建註冊表值名稱
 	WCHAR valueName[MAX_PATH];
-	_snwprintf_s(valueName, _countof(valueName), _TRUNCATE, L"taskbar_order_%zu", taskbarIndex);
+	_snwprintf_s(valueName, _countof(valueName), _TRUNCATE, L"taskbar_order");
 
 	// 從註冊表讀取HWND列表
 	HKEY hKey;
