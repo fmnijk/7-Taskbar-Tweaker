@@ -387,7 +387,7 @@ static void BackupTaskbarOrderForTaskList(LONG_PTR lpMMTaskListLongPtr, LONG_PTR
 // Timer 處理函數
 // 把魔術數字改為命名常量
 #define RESTORE_ORDER_TIMER_ID 8465157
-#define RESTORE_ORDER_DELAY 250 // 250ms延遲
+#define RESTORE_ORDER_DELAY 500 // 500ms延遲
 #define REFRESH_WAIT_TIMER_ID 8465158
 #define REFRESH_WAIT_DELAY 250 // 250ms延遲
 static BOOL OPT_GROUPING_MODIFIED = FALSE;
@@ -5110,10 +5110,10 @@ static void DebuglpArrayInformation(LONG_PTR *plp, LONG_PTR lpAppViewMgr, SRWLOC
 			}
 		}
 
-		// Clean up title text (remove 0x2029)
+		// Clean up title text (remove 0x2029 and 0x200E) Honeyview and Bandiview
 		WCHAR *p1 = title, *p2 = title;
 		while(*p1) {
-			if(*p1 != 0x2029) *p2++ = *p1;
+			if(*p1 != 0x2029 && *p1 != 0x200E) *p2++ = *p1;
 			p1++;
 		}
 		*p2 = 0;
