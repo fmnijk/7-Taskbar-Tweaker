@@ -170,3 +170,13 @@ Windows 11:
     本來是從button_groups讀取hwnd順序備份到reg中
     但button_groups還要考慮虛擬桌面的問題，步驟較複雜導致有bug
     所以改用lpArray，因為lpArray是全局的，唯一的
+
+已知問題:
+    如果修改工作列順序時拖曳的是Windows設定
+    lpArray的其他項目皆會變成無效項目
+    所以請不要修改Windows設定在工作列中的順序
+
+已知條件:
+    lpArray永遠是同一個
+    不論是否為0x400
+    不論是否拖曳的是Windows設定
